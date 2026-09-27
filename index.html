@@ -217,7 +217,7 @@
           <div class="about-image-card">
             <div class="avatar-container">
               <div class="avatar-graphic" id="profile-avatar-graphic">
-                <img id="profile-avatar-img" class="avatar-img" src="Assets/keerthan-photo.jpg" alt="Keerthan Tunkoju" onload="this.style.display='block';document.getElementById('profile-avatar-svg').style.display='none';document.getElementById('profile-avatar-graphic')?.classList.add('has-image');" onerror="this.style.display='none';document.getElementById('profile-avatar-svg').style.display='block';document.getElementById('profile-avatar-graphic')?.classList.remove('has-image');">
+                <img id="profile-avatar-img" class="avatar-img" src="Assets/keerthan-photo.jpg" alt="Keerthan Tunkoju" onload="this.style.display='block';document.getElementById('profile-avatar-svg').style.display='none';document.getElementById('profile-avatar-graphic')?.classList.add('has-image');" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='Assets/profile-photo.jpg';}else{this.style.display='none';document.getElementById('profile-avatar-svg').style.display='block';document.getElementById('profile-avatar-graphic')?.classList.remove('has-image');}">
                 <svg id="profile-avatar-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" class="avatar-svg" aria-label="Keerthan Tunkoju avatar" style="display:none;">
                   <defs>
                     <linearGradient id="avatarGrad" x1="0%" y1="0%" x2="100%" y2="100%">

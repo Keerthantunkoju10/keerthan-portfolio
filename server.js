@@ -142,7 +142,7 @@ const server = http.createServer(async (req, res) => {
       fs.writeFileSync(canonicalPath, buffer);
 
       const timestamp = Date.now();
-      const relativeUrl = 'Assets/' + outName + '?v=' + timestamp;
+      const relativeUrl = 'Assets/keerthan-photo.jpg?v=' + timestamp;
 
       // Update SQLite database portfolio_content and sync to data.js
       const pData = await db.getPortfolioData();

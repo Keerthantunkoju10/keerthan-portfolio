@@ -75,6 +75,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         portfolioData = JSON.parse(stored);
+        // Self-heal stale or broken avatar references from older browser caches
+        if (!portfolioData.profile) portfolioData.profile = {};
+        if (!portfolioData.profile.avatar || portfolioData.profile.avatar.includes('profile-photo.jpg')) {
+          if (defaultPortfolioData && defaultPortfolioData.profile && defaultPortfolioData.profile.avatar) {
+            portfolioData.profile.avatar = defaultPortfolioData.profile.avatar;
+          }
+        }
       } else {
         portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
       }
@@ -214,6 +221,14 @@ document.addEventListener('DOMContentLoaded', () => {
           if (avatarGraphic) avatarGraphic.classList.add('has-image');
         });
         avatarImg.addEventListener('error', () => {
+          if (!avatarImg.dataset.triedFallback) {
+            avatarImg.dataset.triedFallback = 'true';
+            // Attempt fallback to canonical keerthan-photo.jpg
+            if (!avatarImg.src.includes('keerthan-photo.jpg')) {
+              avatarImg.src = 'Assets/keerthan-photo.jpg';
+              return;
+            }
+          }
           avatarImg.style.display = 'none';
           if (avatarSvg) avatarSvg.style.display = 'block';
           if (avatarGraphic) avatarGraphic.classList.remove('has-image');
@@ -229,10 +244,10 @@ document.addEventListener('DOMContentLoaded', () => {
         avatarSvg.style.display = 'none';
         if (avatarGraphic) avatarGraphic.classList.add('has-image');
       } else {
-        avatarImg.removeAttribute('src');
-        avatarImg.style.display = 'none';
-        avatarSvg.style.display = 'block';
-        if (avatarGraphic) avatarGraphic.classList.remove('has-image');
+        avatarImg.src = 'Assets/keerthan-photo.jpg';
+        avatarImg.style.display = 'block';
+        avatarSvg.style.display = 'none';
+        if (avatarGraphic) avatarGraphic.classList.add('has-image');
       }
     }
 

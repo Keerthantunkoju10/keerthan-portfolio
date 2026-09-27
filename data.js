@@ -41,7 +41,7 @@ const defaultPortfolioData = {
       "github": "https://github.com/Keerthantunkoju10",
       "githubDisplay": "github.com/Keerthantunkoju10"
     },
-    "avatar": "Assets/profile-photo.jpg?v=1790501744413"
+    "avatar": "Assets/keerthan-photo.jpg"
   },
   "experience": [
     {

@@ -25,3 +25,10 @@
   for = "/Assets/*"
   [headers.values]
     Cache-Control = "public, max-age=604800, stale-while-revalidate=86400"
+
+# Case-insensitive rewrite for Linux Netlify hosting
+[[redirects]]
+  from = "/assets/*"
+  to = "/Assets/:splat"
+  status = 200
+

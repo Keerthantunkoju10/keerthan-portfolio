@@ -1061,9 +1061,9 @@ document.addEventListener('DOMContentLoaded', () => {
       renderAll();
 
       if (serverSaved) {
-        showToast('Profile photo saved & permanently visible for all visitors!', 'success', 3500);
+        showToast('Profile photo saved to backend & visible for all visitors!', 'success', 3500);
       } else {
-        showToast('Profile photo updated in browser storage.', 'success');
+        showToast('Saved to browser preview. (To publish permanently for all Netlify visitors, push your committed photo to Git)', 'info', 5000);
       }
     } catch (err) {
       showToast(err.message || 'Error uploading photo', 'error');

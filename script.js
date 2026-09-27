@@ -60,6 +60,16 @@ document.addEventListener('DOMContentLoaded', () => {
   let portfolioData = null;
   let isEditModeActive = false;
 
+  // Resolve backend API URL (handles cross-origin if loaded via Live Server port 5500 or port 3000)
+  const getApiUrl = (endpoint) => {
+    if (window.location.protocol.startsWith('http') && 
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && 
+        window.location.port !== '3000') {
+      return `http://${window.location.hostname}:3000${endpoint}`;
+    }
+    return endpoint;
+  };
+
   const loadPortfolioData = () => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -73,15 +83,18 @@ document.addEventListener('DOMContentLoaded', () => {
       portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
     }
 
-    // Optional server sync if running via node server.js
+    // Server sync: always retrieve latest saved database content so all visitors see latest edits
     if (window.location.protocol.startsWith('http')) {
-      fetch('/api/portfolio-data')
+      fetch(getApiUrl('/api/portfolio-data'))
         .then(res => res.ok ? res.json() : null)
         .then(serverData => {
           if (serverData && serverData.profile) {
             portfolioData = serverData;
             localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolioData));
             renderAll();
+            if (typeof populateCmsFields === 'function') {
+              populateCmsFields();
+            }
           }
         })
         .catch(() => {
@@ -97,13 +110,20 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast('Changes saved to browser storage!', 'success');
       }
 
-      // If running via node server.js, also persist to data.json on disk
+      // If running via node server.js (or reachable on port 3000), persist to SQLite database and data.js on disk
       if (window.location.protocol.startsWith('http')) {
-        fetch('/api/portfolio-data', {
+        fetch(getApiUrl('/api/portfolio-data'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(portfolioData)
-        }).catch(() => {});
+        })
+        .then(res => res.ok ? res.json() : null)
+        .then(resData => {
+          if (resData && !silent) {
+            showToast('Synchronized with database & disk for all visitors!', 'success');
+          }
+        })
+        .catch(() => {});
       }
     } catch (e) {
       console.error('Error saving portfolio data:', e);
@@ -186,12 +206,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const avatarGraphic = document.getElementById('profile-avatar-graphic');
 
     if (avatarImg && avatarSvg) {
+      if (!avatarImg.dataset.bound) {
+        avatarImg.dataset.bound = 'true';
+        avatarImg.addEventListener('load', () => {
+          avatarImg.style.display = 'block';
+          if (avatarSvg) avatarSvg.style.display = 'none';
+          if (avatarGraphic) avatarGraphic.classList.add('has-image');
+        });
+        avatarImg.addEventListener('error', () => {
+          avatarImg.style.display = 'none';
+          if (avatarSvg) avatarSvg.style.display = 'block';
+          if (avatarGraphic) avatarGraphic.classList.remove('has-image');
+        });
+      }
+
       if (p.avatar && p.avatar.trim() !== '') {
-        avatarImg.src = p.avatar;
+        const cleanAvatar = p.avatar.trim();
+        if (avatarImg.getAttribute('src') !== cleanAvatar) {
+          avatarImg.src = cleanAvatar;
+        }
         avatarImg.style.display = 'block';
         avatarSvg.style.display = 'none';
         if (avatarGraphic) avatarGraphic.classList.add('has-image');
       } else {
+        avatarImg.removeAttribute('src');
         avatarImg.style.display = 'none';
         avatarSvg.style.display = 'block';
         if (avatarGraphic) avatarGraphic.classList.remove('has-image');
@@ -979,10 +1017,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const { dataUrl, filename } = await processAndOptimizeImage(file);
 
       let finalAvatarUrl = dataUrl;
+      let serverSaved = false;
+
       // Try to save to server if online
       if (window.location.protocol.startsWith('http')) {
         try {
-          const res = await fetch('/api/upload-photo', {
+          const res = await fetch(getApiUrl('/api/upload-photo'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ photoBase64: dataUrl, filename })
@@ -991,6 +1031,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const json = await res.json();
             if (json.photoUrl) {
               finalAvatarUrl = json.photoUrl;
+              serverSaved = true;
             }
           }
         } catch (e) {
@@ -1001,9 +1042,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!portfolioData.profile) portfolioData.profile = {};
       portfolioData.profile.avatar = finalAvatarUrl;
       updateCmsPhotoPreview(finalAvatarUrl);
-      savePortfolioData();
+      savePortfolioData(true);
       renderAll();
-      showToast('Profile photo updated successfully!', 'success');
+
+      if (serverSaved) {
+        showToast('Profile photo saved & permanently visible for all visitors!', 'success', 3500);
+      } else {
+        showToast('Profile photo updated in browser storage.', 'success');
+      }
     } catch (err) {
       showToast(err.message || 'Error uploading photo', 'error');
     }
@@ -1334,8 +1380,23 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('Downloaded portfolio-data.json backup!', 'success');
   };
 
+  const cmsExportDataJsBtn = document.getElementById('cms-export-datajs-btn');
+
+  const downloadDataJs = () => {
+    const content = `/**\n * ==========================================================================\n * KEERTHAN TUNKOJU PORTFOLIO - DEFAULT DATA STORE\n * Auto-synced with SQLite database and admin CMS updates.\n * ==========================================================================\n */\n\nconst defaultPortfolioData = ${JSON.stringify(portfolioData, null, 2)};\n\n// Export for module systems or attach to global scope\nif (typeof module !== 'undefined' && module.exports) {\n  module.exports = defaultPortfolioData;\n}\n`;
+    const dataStr = "data:text/javascript;charset=utf-8," + encodeURIComponent(content);
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", "data.js");
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    showToast('Downloaded data.js! Replace data.js to deploy for all visitors.', 'success', 4000);
+  };
+
   if (exportJsonBtn) exportJsonBtn.addEventListener('click', downloadJsonBackup);
   if (cmsExportBtn) cmsExportBtn.addEventListener('click', downloadJsonBackup);
+  if (cmsExportDataJsBtn) cmsExportDataJsBtn.addEventListener('click', downloadDataJs);
 
   if (cmsCopyJsonBtn) {
     cmsCopyJsonBtn.addEventListener('click', () => {
@@ -1597,7 +1658,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // 1. Post to SQLite database on server
       const sendPromise = window.location.protocol.startsWith('http')
-        ? fetch('/api/contact', {
+        ? fetch(getApiUrl('/api/contact'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -1661,7 +1722,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let messages = [];
     if (window.location.protocol.startsWith('http')) {
       try {
-        const res = await fetch('/api/messages');
+        const res = await fetch(getApiUrl('/api/messages'));
         if (res.ok) messages = await res.json();
       } catch (e) {}
     }
@@ -1703,7 +1764,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!confirm('Are you sure you want to delete this message from the database?')) return;
     if (window.location.protocol.startsWith('http')) {
       try {
-        await fetch(`/api/messages/${id}`, { method: 'DELETE' });
+        await fetch(getApiUrl(`/api/messages/${id}`), { method: 'DELETE' });
       } catch (e) {}
     }
     const local = JSON.parse(localStorage.getItem('keerthan_contact_messages') || '[]');
@@ -1717,7 +1778,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const fetchDbStats = async () => {
     if (window.location.protocol.startsWith('http')) {
       try {
-        const res = await fetch('/api/database/stats');
+        const res = await fetch(getApiUrl('/api/database/stats'));
         if (res.ok) {
           const stats = await res.json();
           const eng = document.getElementById('db-stat-engine');

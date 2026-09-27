@@ -123,10 +123,38 @@ class PortfolioDatabase {
     });
   }
 
+  // Sync portfolio data to data.js on disk so static visitors and others immediately see updates
+  syncDataFile(dataObj) {
+    try {
+      const dataFilePath = path.join(__dirname, 'data.js');
+      const content = `/**
+ * ==========================================================================
+ * KEERTHAN TUNKOJU PORTFOLIO - DEFAULT DATA STORE
+ * Auto-synced with SQLite database and admin CMS updates.
+ * ==========================================================================
+ */
+
+const defaultPortfolioData = ${JSON.stringify(dataObj, null, 2)};
+
+// Export for module systems or attach to global scope
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = defaultPortfolioData;
+}
+`;
+      fs.writeFileSync(dataFilePath, content, 'utf8');
+      try {
+        delete require.cache[require.resolve('./data.js')];
+      } catch (e) {}
+    } catch (err) {
+      console.error('Warning: Failed to sync data.js:', err.message);
+    }
+  }
+
   // Update portfolio content
   savePortfolioData(dataObj) {
     return new Promise((resolve, reject) => {
       const jsonStr = JSON.stringify(dataObj);
+      const self = this;
       this.db.run(
         `INSERT INTO portfolio_content (id, data_json, updated_at) 
          VALUES ('main', ?, CURRENT_TIMESTAMP) 
@@ -134,6 +162,7 @@ class PortfolioDatabase {
         [jsonStr],
         function(err) {
           if (err) return reject(err);
+          self.syncDataFile(dataObj);
           resolve({ success: true, updated_at: new Date().toISOString() });
         }
       );

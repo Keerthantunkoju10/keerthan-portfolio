@@ -137,15 +137,20 @@ const server = http.createServer(async (req, res) => {
       const targetPath = path.join(assetsDir, outName);
       fs.writeFileSync(targetPath, buffer);
 
-      const relativeUrl = 'Assets/' + outName + '?v=' + Date.now();
+      // Also overwrite Assets/keerthan-photo.jpg so any direct or default asset references reflect the uploaded photo
+      const canonicalPath = path.join(assetsDir, 'keerthan-photo.jpg');
+      fs.writeFileSync(canonicalPath, buffer);
 
-      // Update SQLite database portfolio_content as well
+      const timestamp = Date.now();
+      const relativeUrl = 'Assets/' + outName + '?v=' + timestamp;
+
+      // Update SQLite database portfolio_content and sync to data.js
       const pData = await db.getPortfolioData();
       if (!pData.profile) pData.profile = {};
       pData.profile.avatar = relativeUrl;
       await db.savePortfolioData(pData);
 
-      return sendJson(res, 200, { success: true, photoUrl: relativeUrl, message: 'Profile photo saved successfully' });
+      return sendJson(res, 200, { success: true, photoUrl: relativeUrl, message: 'Profile photo saved successfully and synchronized for all visitors' });
     } catch (err) {
       return sendJson(res, 500, { error: 'Failed to save photo: ' + err.message });
     }

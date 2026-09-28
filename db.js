@@ -16,7 +16,7 @@ const sqlite3 = require('sqlite3').verbose();
 const defaultData = require('./data.js');
 
 const DB_FILE = path.join(__dirname, 'portfolio.db');
-const DEFAULT_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'; // admin123
+const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4'; // Keerthan@2024
 
 class PortfolioDatabase {
   constructor() {
@@ -97,7 +97,7 @@ class PortfolioDatabase {
             [DEFAULT_HASH],
             (insertErr) => {
               if (insertErr) console.error('Error seeding admin user:', insertErr);
-              else console.log('🌱 Seeded default admin user (username: "admin", password: "admin123").');
+              else console.log('🌱 Seeded default admin user (username: "admin", password: "Keerthan@2024").');
             }
           );
         }

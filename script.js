@@ -54,8 +54,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const STORAGE_KEY = 'keerthan_portfolio_data';
   const AUTH_KEY = 'keerthan_admin_session';
   const PASSWORD_HASH_KEY = 'keerthan_admin_hash';
-  // Default hash for 'admin123'
-  const DEFAULT_HASH = '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9';
+  // Default hash for 'Keerthan@2024'
+  const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4';
 
   let portfolioData = null;
   let isEditModeActive = false;
@@ -507,6 +507,102 @@ document.addEventListener('DOMContentLoaded', () => {
   const editModeStatus = document.getElementById('edit-mode-status');
 
   const ADMIN_DEVICE_KEY = 'portfolio_admin_device_authorized';
+  const ADMIN_TIMEOUT_SECONDS = 20;
+  let adminLoginTimerInterval = null;
+  let adminLoginSecondsRemaining = ADMIN_TIMEOUT_SECONDS;
+
+  const adminTimerWrap = document.getElementById('admin-login-timer-wrap');
+  const adminTimerCountdown = document.getElementById('admin-timer-countdown');
+  const adminTimerProgress = document.getElementById('admin-timer-progress');
+  const adminBtnTimerBadge = document.getElementById('admin-btn-timer-badge');
+
+  const updateTimerDisplay = (seconds) => {
+    if (adminTimerCountdown) {
+      adminTimerCountdown.textContent = `${seconds}s`;
+    }
+    if (adminTimerProgress) {
+      const pct = Math.max(0, (seconds / ADMIN_TIMEOUT_SECONDS) * 100);
+      adminTimerProgress.style.width = `${pct}%`;
+    }
+    if (adminTimerWrap) {
+      if (seconds <= 5) {
+        adminTimerWrap.classList.add('urgent');
+      } else {
+        adminTimerWrap.classList.remove('urgent');
+      }
+    }
+    if (adminBtnTimerBadge) {
+      adminBtnTimerBadge.textContent = `${seconds}s`;
+      if (!isUserAuthenticated() && adminTriggerBtn && adminTriggerBtn.style.display !== 'none' && !adminTriggerBtn.classList.contains('admin-hidden')) {
+        adminBtnTimerBadge.style.display = 'inline-block';
+      } else {
+        adminBtnTimerBadge.style.display = 'none';
+      }
+    }
+  };
+
+  const stopAdminLoginTimer = () => {
+    if (adminLoginTimerInterval) {
+      clearInterval(adminLoginTimerInterval);
+      adminLoginTimerInterval = null;
+    }
+    if (adminBtnTimerBadge) {
+      adminBtnTimerBadge.style.display = 'none';
+    }
+    if (adminTimerWrap) {
+      adminTimerWrap.classList.remove('urgent');
+    }
+  };
+
+  const startAdminLoginTimer = () => {
+    stopAdminLoginTimer();
+    adminLoginSecondsRemaining = ADMIN_TIMEOUT_SECONDS;
+    updateTimerDisplay(adminLoginSecondsRemaining);
+
+    adminLoginTimerInterval = setInterval(() => {
+      if (isUserAuthenticated()) {
+        stopAdminLoginTimer();
+        return;
+      }
+
+      adminLoginSecondsRemaining--;
+      updateTimerDisplay(adminLoginSecondsRemaining);
+
+      if (adminLoginSecondsRemaining <= 0) {
+        stopAdminLoginTimer();
+        closeModal(adminLoginModal);
+        if (adminLoginForm) adminLoginForm.reset();
+        if (loginErrorMsg) loginErrorMsg.textContent = '';
+
+        if (!isUserAuthenticated()) {
+          localStorage.removeItem(ADMIN_DEVICE_KEY);
+          if (adminTriggerBtn) {
+            adminTriggerBtn.classList.add('admin-hidden');
+            adminTriggerBtn.style.display = 'none';
+          }
+          if (adminBtnTimerBadge) {
+            adminBtnTimerBadge.style.display = 'none';
+          }
+          updateAdminUI();
+          showToast('⏱️ Admin login window timed out (20s limit). Admin option locked.', 'error', 4500);
+        }
+      }
+    }, 1000);
+  };
+
+  const openAdminLoginModalWithTimer = () => {
+    if (isUserAuthenticated()) {
+      openModal(document.getElementById('admin-cms-modal'));
+      populateCmsFields();
+      return;
+    }
+
+    if (adminLoginForm) adminLoginForm.reset();
+    if (loginErrorMsg) loginErrorMsg.textContent = '';
+    openModal(adminLoginModal);
+    startAdminLoginTimer();
+    setTimeout(() => adminPasswordInput && adminPasswordInput.focus(), 150);
+  };
 
   // Compute SHA-256 hex string using browser-native subtle crypto
   const sha256 = async (message) => {
@@ -517,7 +613,13 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const getStoredHash = () => {
-    return localStorage.getItem(PASSWORD_HASH_KEY) || DEFAULT_HASH;
+    const stored = localStorage.getItem(PASSWORD_HASH_KEY);
+    // Automatically migrate from old default 'admin123' hash if present in browser storage
+    if (!stored || stored === '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9') {
+      localStorage.setItem(PASSWORD_HASH_KEY, DEFAULT_HASH);
+      return DEFAULT_HASH;
+    }
+    return stored;
   };
 
   const setStoredHash = (newHash) => {
@@ -573,6 +675,7 @@ document.addEventListener('DOMContentLoaded', () => {
         adminTriggerBtn.style.display = 'inline-flex';
         adminTriggerBtn.classList.add('active');
         adminTriggerBtn.title = 'Admin Active (Click for CMS Dashboard)';
+        if (adminBtnTimerBadge) adminBtnTimerBadge.style.display = 'none';
       } else if (isAuthDevice) {
         adminTriggerBtn.classList.remove('admin-hidden');
         adminTriggerBtn.style.display = 'inline-flex';
@@ -581,6 +684,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         adminTriggerBtn.classList.add('admin-hidden');
         adminTriggerBtn.style.display = 'none';
+        if (adminBtnTimerBadge) adminBtnTimerBadge.style.display = 'none';
       }
     }
 
@@ -602,6 +706,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentHash = getStoredHash();
 
     if (computedHash === currentHash) {
+      stopAdminLoginTimer();
       sessionStorage.setItem(AUTH_KEY, 'true');
       localStorage.setItem(ADMIN_DEVICE_KEY, 'true'); // Authorize device upon login
       if (loginErrorMsg) loginErrorMsg.textContent = '';
@@ -620,7 +725,9 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const logoutAdmin = () => {
+    stopAdminLoginTimer();
     sessionStorage.removeItem(AUTH_KEY);
+    localStorage.removeItem(ADMIN_DEVICE_KEY);
     setEditMode(false);
     updateAdminUI();
     showToast('Logged out from admin session.', 'info');
@@ -639,10 +746,9 @@ document.addEventListener('DOMContentLoaded', () => {
           openModal(document.getElementById('admin-cms-modal'));
           populateCmsFields();
         } else {
-          openModal(adminLoginModal);
-          setTimeout(() => adminPasswordInput && adminPasswordInput.focus(), 150);
+          openAdminLoginModalWithTimer();
         }
-        showToast('🔒 Admin gateway unlocked for this device.', 'info', 2500);
+        showToast('🔒 Admin gateway unlocked (20s login timer active).', 'info', 2500);
       }, 350);
 
       // Clean address bar so the query string doesn't remain visible
@@ -676,10 +782,9 @@ document.addEventListener('DOMContentLoaded', () => {
           openModal(document.getElementById('admin-cms-modal'));
           populateCmsFields();
         } else {
-          openModal(adminLoginModal);
-          setTimeout(() => adminPasswordInput && adminPasswordInput.focus(), 150);
+          openAdminLoginModalWithTimer();
         }
-        showToast('🔒 Admin gateway unlocked.', 'info', 2500);
+        showToast('🔒 Admin gateway unlocked (20s login timer active).', 'info', 2500);
       }
     };
 
@@ -697,10 +802,9 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal(document.getElementById('admin-cms-modal'));
         populateCmsFields();
       } else {
-        openModal(adminLoginModal);
-        setTimeout(() => adminPasswordInput && adminPasswordInput.focus(), 150);
+        openAdminLoginModalWithTimer();
       }
-      showToast('🔒 Admin gateway opened.', 'info', 2000);
+      showToast('🔒 Admin gateway opened (20s login timer active).', 'info', 2000);
     }
   });
 
@@ -711,8 +815,7 @@ document.addEventListener('DOMContentLoaded', () => {
         openModal(document.getElementById('admin-cms-modal'));
         populateCmsFields();
       } else {
-        openModal(adminLoginModal);
-        setTimeout(() => adminPasswordInput && adminPasswordInput.focus(), 150);
+        openAdminLoginModalWithTimer();
       }
     });
   }
@@ -1204,7 +1307,6 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('Role deleted successfully.', 'info');
   };
 
-  const addExpBtn = document.getElementById('add-experience-btn');
   const cmsAddExpBtn = document.getElementById('cms-add-exp-btn');
   const openNewExpModal = () => {
     if (expForm) expForm.reset();
@@ -1212,7 +1314,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exp-modal-title').textContent = 'Add New Work Experience';
     openModal(expModal);
   };
-  if (addExpBtn) addExpBtn.addEventListener('click', openNewExpModal);
   if (cmsAddExpBtn) cmsAddExpBtn.addEventListener('click', openNewExpModal);
 
   if (expForm) {
@@ -1282,7 +1383,6 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('Project deleted successfully.', 'info');
   };
 
-  const addProjBtn = document.getElementById('add-project-btn');
   const cmsAddProjBtn = document.getElementById('cms-add-proj-btn');
   const openNewProjModal = () => {
     if (projForm) projForm.reset();
@@ -1290,7 +1390,6 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('proj-modal-title').textContent = 'Add New Project';
     openModal(projModal);
   };
-  if (addProjBtn) addProjBtn.addEventListener('click', openNewProjModal);
   if (cmsAddProjBtn) cmsAddProjBtn.addEventListener('click', openNewProjModal);
 
   if (projForm) {
@@ -1519,6 +1618,19 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!modal) return;
     modal.hidden = true;
     document.body.style.overflow = '';
+
+    if (modal === adminLoginModal && !isUserAuthenticated()) {
+      stopAdminLoginTimer();
+      localStorage.removeItem(ADMIN_DEVICE_KEY);
+      if (adminTriggerBtn) {
+        adminTriggerBtn.classList.add('admin-hidden');
+        adminTriggerBtn.style.display = 'none';
+      }
+      if (adminBtnTimerBadge) {
+        adminBtnTimerBadge.style.display = 'none';
+      }
+      updateAdminUI();
+    }
   };
 
   // Close modals when clicking outside card or clicking [data-close-modal]

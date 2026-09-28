@@ -97,7 +97,6 @@ const defaultPortfolioData = {
       "desc": "Programming languages and web technologies used for core application development.",
       "tags": [
         "Python",
-        "C & C++",
         "JavaScript",
         "SQL (MySQL)",
         "HTML5",

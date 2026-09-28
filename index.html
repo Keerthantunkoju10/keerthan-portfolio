@@ -90,6 +90,7 @@
             <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
           </svg>
           <span class="admin-btn-text">Admin</span>
+          <span class="admin-btn-timer-badge" id="admin-btn-timer-badge" style="display: none;">20s</span>
         </button>
 
         <!-- Theme Toggle Button -->
@@ -274,13 +275,6 @@
           <p class="section-intro">Practical industry experience spanning spatial engineering, software scripting, and web development.</p>
         </header>
 
-        <!-- Admin Experience Quick Add Button -->
-        <div class="admin-section-actions" data-admin-only hidden>
-          <button id="add-experience-btn" class="btn btn-sm btn-primary">
-            <span>+ Add New Experience</span>
-          </button>
-        </div>
-
         <div class="timeline-container" id="timeline-container">
           <!-- Rendered Dynamically -->
         </div>
@@ -312,13 +306,6 @@
           <div class="title-underline"></div>
           <p class="section-intro">Demonstrating practical applications of Deep Learning, Machine Learning, GIS Spatial Engineering, and Full-Stack Web Development.</p>
         </header>
-
-        <!-- Admin Projects Quick Add Button -->
-        <div class="admin-section-actions" data-admin-only hidden>
-          <button id="add-project-btn" class="btn btn-sm btn-primary">
-            <span>+ Add New Project</span>
-          </button>
-        </div>
 
         <div class="projects-grid" id="projects-container">
           <!-- Rendered Dynamically -->
@@ -477,6 +464,17 @@
         <button class="modal-close-btn" data-close-modal title="Close modal">&times;</button>
       </div>
       <div class="modal-body">
+        <!-- 20-Second Security Timeout Banner -->
+        <div class="admin-timer-banner" id="admin-login-timer-wrap">
+          <div class="admin-timer-content">
+            <span class="admin-timer-label">⏱️ Security Timeout:</span>
+            <span class="admin-timer-val">Auto-closing in <strong id="admin-timer-countdown">20s</strong></span>
+          </div>
+          <div class="admin-timer-bar">
+            <div class="admin-timer-progress" id="admin-timer-progress" style="width: 100%;"></div>
+          </div>
+        </div>
+
         <p class="modal-desc">Enter the administrative password to unlock live inline website editing and content management.</p>
         
         <form id="admin-login-form">

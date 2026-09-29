@@ -14,7 +14,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,600;0,700;1,400&display=swap" rel="stylesheet">
 
   <!-- Main Stylesheet -->
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.1">
 </head>
 <body>
   <!-- Accessible Skip Link -->
@@ -1006,6 +1006,18 @@
             <div style="margin-top: 0.6rem;">
               <input type="text" id="cert-file-url" class="form-input" placeholder="Or enter direct document path/URL (e.g. Assets/certifications/cert.pdf)">
             </div>
+
+            <!-- Live Upload Preview Container inside modal -->
+            <div id="cert-upload-preview-container" class="cms-cert-preview-box" style="display:none;">
+              <div class="cms-cert-preview-header">
+                <span class="cert-file-badge" id="cert-preview-badge">📄 Document Attached</span>
+                <div style="display:flex; gap:0.5rem;">
+                  <a id="cert-preview-open-link" href="#" target="_blank" class="btn btn-sm btn-outline" style="padding:0.2rem 0.5rem;font-size:0.75rem;">↗ Open in Tab</a>
+                  <button type="button" id="cert-preview-test-modal" class="btn btn-sm btn-secondary" style="padding:0.2rem 0.5rem;font-size:0.75rem;">👁 Preview Modal</button>
+                </div>
+              </div>
+              <div id="cert-inline-preview-wrap"></div>
+            </div>
           </div>
 
           <div class="modal-footer" style="margin-top: 1.5rem;">
@@ -1101,7 +1113,7 @@
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <!-- Scripts: Default Data first, then Main Controller -->
-  <script src="data.js"></script>
-  <script src="script.js"></script>
+  <script src="data.js?v=1.1"></script>
+  <script src="script.js?v=1.1"></script>
 </body>
 </html>

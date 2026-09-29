@@ -485,7 +485,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 : `<span class="cert-attached-badge" style="background:rgba(245,158,11,0.12);color:var(--status-warning);border-color:rgba(245,158,11,0.25);">⭐ Verified Credential</span>`;
 
               return `
-              <li class="cert-item" data-cert-id="${cert.id}" tabindex="0" role="button" aria-label="View ${cert.title} Certificate">
+              <li class="cert-item" data-cert-id="${cert.id}" onclick="window.openCertPreview('${cert.id}')" tabindex="0" role="button" aria-label="View ${cert.title} Certificate">
                 <div class="cert-item-main">
                   <svg class="cert-check-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                   <div class="cert-info">
@@ -497,7 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
                   </div>
                 </div>
                 <div class="cert-item-actions">
-                  <button type="button" class="btn btn-sm btn-outline cert-view-btn" data-cert-btn="${cert.id}" title="View Certificate Document">
+                  <button type="button" class="btn btn-sm btn-outline cert-view-btn" onclick="event.stopPropagation(); window.openCertPreview('${cert.id}')" title="View Certificate Document">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     <span>View Certificate</span>
                   </button>
@@ -512,15 +512,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     container.innerHTML = html;
 
-    // Attach click and keyboard handlers to certificate items
+    // Attach keyboard handlers to certificate items for accessibility
     container.querySelectorAll('.cert-item').forEach(item => {
       const certId = item.getAttribute('data-cert-id');
       if (!certId) return;
-
-      item.addEventListener('click', (e) => {
-        if (e.target.closest('a')) return;
-        window.openCertPreview(certId);
-      });
 
       item.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -1566,6 +1561,59 @@ document.addEventListener('DOMContentLoaded', () => {
   const certFileStatusText = document.getElementById('cert-file-status-text');
   const certFileUrlInput = document.getElementById('cert-file-url');
 
+  // Live Inline Preview inside CMS Edit Modal
+  const updateCertModalPreview = (fileUrl) => {
+    const previewContainer = document.getElementById('cert-upload-preview-container');
+    const previewWrap = document.getElementById('cert-inline-preview-wrap');
+    const previewBadge = document.getElementById('cert-preview-badge');
+    const openLink = document.getElementById('cert-preview-open-link');
+    const testModalBtn = document.getElementById('cert-preview-test-modal');
+
+    if (!previewContainer || !previewWrap) return;
+
+    if (!fileUrl || !fileUrl.trim()) {
+      previewContainer.style.display = 'none';
+      previewWrap.innerHTML = '';
+      return;
+    }
+
+    const rawUrl = fileUrl.replace(/\\/g, '/').trim();
+    const cleanUrl = (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:') || rawUrl.startsWith('/')) 
+      ? rawUrl 
+      : '/' + rawUrl;
+
+    const isPdf = cleanUrl.toLowerCase().includes('.pdf');
+    const fileName = cleanUrl.split('/').pop().split('?')[0];
+
+    previewContainer.style.display = 'flex';
+    if (previewBadge) {
+      previewBadge.innerHTML = isPdf ? `📄 PDF Document: ${fileName}` : `🖼️ Image Document: ${fileName}`;
+    }
+    if (openLink) {
+      openLink.href = cleanUrl;
+    }
+    if (testModalBtn) {
+      testModalBtn.onclick = () => {
+        const tempCertId = document.getElementById('cert-id').value;
+        if (tempCertId) {
+          window.openCertPreview(tempCertId);
+        } else {
+          window.open(cleanUrl, '_blank');
+        }
+      };
+    }
+
+    if (isPdf) {
+      previewWrap.innerHTML = `
+        <iframe src="${cleanUrl}#toolbar=0&navpanes=0" class="cms-cert-preview-frame" title="Certificate Document Preview"></iframe>
+      `;
+    } else {
+      previewWrap.innerHTML = `
+        <img src="${cleanUrl}" alt="Certificate Document Preview" class="cms-cert-preview-img" loading="lazy">
+      `;
+    }
+  };
+
   window.editCertification = (id) => {
     if (!portfolioData.certifications) portfolioData.certifications = [];
     const cert = portfolioData.certifications.find(c => c.id === id);
@@ -1581,16 +1629,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('cert-modal-title').textContent = 'Edit Certification';
 
     if (cert.fileUrl && cert.fileUrl.trim()) {
-      const fileName = cert.fileUrl.split('/').pop();
+      const fileName = cert.fileUrl.replace(/\\/g, '/').split('/').pop();
       if (certFileStatusText) {
         certFileStatusText.innerHTML = `<span class="cert-file-badge">📄 Document Attached: ${fileName}</span>`;
       }
       if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'inline-block';
+      updateCertModalPreview(cert.fileUrl);
     } else {
       if (certFileStatusText) {
         certFileStatusText.textContent = 'No document attached yet (Digital credential preview will be generated).';
       }
       if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'none';
+      updateCertModalPreview('');
     }
 
     openModal(certModal);
@@ -1614,6 +1664,7 @@ document.addEventListener('DOMContentLoaded', () => {
       certFileStatusText.textContent = 'No document attached yet (Digital credential preview will be generated).';
     }
     if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'none';
+    updateCertModalPreview('');
     openModal(certModal);
   };
   if (cmsAddCertBtn) cmsAddCertBtn.addEventListener('click', openNewCertModal);
@@ -1655,6 +1706,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 certFileStatusText.innerHTML = `<span class="cert-file-badge">✓ Document Uploaded: ${result.filename || file.name}</span>`;
               }
               if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'inline-block';
+              updateCertModalPreview(result.fileUrl);
               showToast('Certificate document uploaded successfully!', 'success');
               return;
             }
@@ -1669,6 +1721,7 @@ document.addEventListener('DOMContentLoaded', () => {
           certFileStatusText.innerHTML = `<span class="cert-file-badge">✓ Document Attached: ${file.name}</span>`;
         }
         if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'inline-block';
+        updateCertModalPreview(base64Data);
         showToast('Certificate document attached!', 'success');
       };
 
@@ -1684,7 +1737,14 @@ document.addEventListener('DOMContentLoaded', () => {
         certFileStatusText.textContent = 'No document attached yet (Digital credential preview will be generated).';
       }
       certRemoveFileBtn.style.display = 'none';
+      updateCertModalPreview('');
       showToast('Attached certificate document removed.', 'info');
+    });
+  }
+
+  if (certFileUrlInput) {
+    certFileUrlInput.addEventListener('input', () => {
+      updateCertModalPreview(certFileUrlInput.value);
     });
   }
 
@@ -1745,24 +1805,32 @@ document.addEventListener('DOMContentLoaded', () => {
   const certCredentialBtn = document.getElementById('cert-credential-btn');
   const certAdminEditBtn = document.getElementById('cert-admin-edit-btn');
 
-  window.openCertPreview = (certId) => {
+  window.openCertPreview = (certId, forceParchment = false) => {
     if (!portfolioData || !portfolioData.certifications) return;
     const cert = portfolioData.certifications.find(c => c.id === certId);
     if (!cert) return;
+
+    // Open modal FIRST so layout dimensions are active and calculated
+    openModal(certPreviewModal);
 
     if (certPreviewTitle) certPreviewTitle.textContent = cert.title;
     if (certPreviewSubtitle) {
       certPreviewSubtitle.innerHTML = `${cert.org} &bull; Issued ${cert.year}`;
     }
 
-    const hasFile = cert.fileUrl && cert.fileUrl.trim();
-    const isPdf = hasFile && cert.fileUrl.toLowerCase().includes('.pdf');
+    const hasFile = cert.fileUrl && cert.fileUrl.trim() && !forceParchment;
+    const rawUrl = (cert.fileUrl || '').replace(/\\/g, '/').trim();
+    const cleanUrl = (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:') || rawUrl.startsWith('/')) 
+      ? rawUrl 
+      : '/' + rawUrl;
+
+    const isPdf = hasFile && cleanUrl.toLowerCase().includes('.pdf');
 
     // Configure Toolbar Action Buttons
     if (certDownloadBtn) {
       if (hasFile) {
         certDownloadBtn.style.display = 'inline-flex';
-        certDownloadBtn.href = cert.fileUrl;
+        certDownloadBtn.href = cleanUrl;
         const fileExt = isPdf ? '.pdf' : '.png';
         const safeName = (cert.title || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_');
         certDownloadBtn.setAttribute('download', `${safeName}${fileExt}`);
@@ -1781,7 +1849,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (certFullscreenBtn) {
       if (hasFile) {
         certFullscreenBtn.style.display = 'inline-flex';
-        certFullscreenBtn.href = cert.fileUrl;
+        certFullscreenBtn.href = cleanUrl;
+        certFullscreenBtn.setAttribute('target', '_blank');
       } else {
         certFullscreenBtn.style.display = 'none';
       }
@@ -1817,30 +1886,86 @@ document.addEventListener('DOMContentLoaded', () => {
     // Render Preview Modal Content
     if (certPreviewBody) {
       if (hasFile) {
+        certPreviewBody.classList.add('has-doc');
+        const fileName = cleanUrl.split('/').pop().split('?')[0];
+
         if (isPdf) {
           certPreviewBody.innerHTML = `
-            <object data="${cert.fileUrl}" type="application/pdf" class="cert-pdf-frame">
-              <iframe src="${cert.fileUrl}" class="cert-pdf-frame" title="${cert.title}">
-                <div class="cert-pdf-fallback">
-                  <p style="margin-bottom: 1rem;">PDF preview is available for download:</p>
-                  <a href="${cert.fileUrl}" download class="btn btn-primary">Download ${cert.title} PDF</a>
-                </div>
-              </iframe>
-            </object>
+            <div class="cert-doc-notice-bar">
+              <div class="doc-meta">
+                <span class="cert-file-badge">📄 Official Certificate Document (PDF)</span>
+                <span title="${fileName}" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fileName}</span>
+              </div>
+              <div class="cert-doc-notice-actions">
+                <button type="button" class="btn btn-sm btn-outline" id="toggle-parchment-btn" title="View digital parchment credential format">
+                  📜 Digital Parchment
+                </button>
+                <a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline" title="Open PDF in new tab">
+                  ↗ New Tab
+                </a>
+                <a href="${cleanUrl}" download="${(cert.title || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf" class="btn btn-sm btn-primary">
+                  ⬇ Download PDF
+                </a>
+              </div>
+            </div>
+            <iframe 
+              src="${cleanUrl}#toolbar=1&navpanes=0&view=FitH" 
+              class="cert-pdf-frame" 
+              title="${cert.title}" 
+              loading="eager"
+              allow="fullscreen">
+            </iframe>
           `;
+
+          const toggleBtn = certPreviewBody.querySelector('#toggle-parchment-btn');
+          if (toggleBtn) {
+            toggleBtn.onclick = () => window.openCertPreview(cert.id, true);
+          }
         } else {
+          // Attached image document
           certPreviewBody.innerHTML = `
+            <div class="cert-doc-notice-bar">
+              <div class="doc-meta">
+                <span class="cert-file-badge">🖼️ Official Certificate Image</span>
+                <span title="${fileName}">${fileName}</span>
+              </div>
+              <div class="cert-doc-notice-actions">
+                <button type="button" class="btn btn-sm btn-outline" id="toggle-parchment-btn" title="View digital parchment credential format">
+                  📜 Digital Parchment
+                </button>
+                <a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline">
+                  ↗ New Tab
+                </a>
+                <a href="${cleanUrl}" download class="btn btn-sm btn-primary">
+                  ⬇ Download Image
+                </a>
+              </div>
+            </div>
             <div class="cert-img-wrapper">
-              <img src="${cert.fileUrl}" alt="${cert.title}" class="cert-preview-img" loading="lazy">
+              <img src="${cleanUrl}" alt="${cert.title}" class="cert-preview-img" loading="eager">
             </div>
           `;
+
+          const toggleBtn = certPreviewBody.querySelector('#toggle-parchment-btn');
+          if (toggleBtn) {
+            toggleBtn.onclick = () => window.openCertPreview(cert.id, true);
+          }
         }
       } else {
         // Authentic Digital Parchment Certificate
+        certPreviewBody.classList.remove('has-doc');
         const recipientName = (portfolioData.profile && portfolioData.profile.name) ? portfolioData.profile.name : 'Keerthan Tunkoju';
         const descriptionText = cert.desc || 'Demonstrating technical proficiency, professional competency, and completion of practical training curriculum.';
+        const toggleBackBtn = cert.fileUrl && cert.fileUrl.trim()
+          ? `<div style="margin-bottom:0.75rem;text-align:right;width:100%;max-width:760px;">
+               <button type="button" class="btn btn-sm btn-primary" id="toggle-doc-btn">
+                 📄 View Attached Original Document (${cleanUrl.split('.').pop().toUpperCase()})
+               </button>
+             </div>`
+          : '';
 
         certPreviewBody.innerHTML = `
+          ${toggleBackBtn}
           <div class="cert-paper">
             <div class="cert-border-outer">
               <div class="cert-border-inner">
@@ -1885,10 +2010,13 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           </div>
         `;
+
+        const toggleDocBtn = certPreviewBody.querySelector('#toggle-doc-btn');
+        if (toggleDocBtn) {
+          toggleDocBtn.onclick = () => window.openCertPreview(cert.id, false);
+        }
       }
     }
-
-    openModal(certPreviewModal);
   };
 
 

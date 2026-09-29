@@ -82,6 +82,14 @@ document.addEventListener('DOMContentLoaded', () => {
             portfolioData.profile.avatar = defaultPortfolioData.profile.avatar;
           }
         }
+        // Ensure certifications array exists and is populated
+        if (!portfolioData.certifications || !Array.isArray(portfolioData.certifications) || portfolioData.certifications.length === 0) {
+          if (defaultPortfolioData && defaultPortfolioData.certifications) {
+            portfolioData.certifications = JSON.parse(JSON.stringify(defaultPortfolioData.certifications));
+          } else {
+            portfolioData.certifications = [];
+          }
+        }
       } else {
         portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
       }
@@ -97,6 +105,11 @@ document.addEventListener('DOMContentLoaded', () => {
         .then(serverData => {
           if (serverData && serverData.profile) {
             portfolioData = serverData;
+            if (!portfolioData.certifications || !Array.isArray(portfolioData.certifications) || portfolioData.certifications.length === 0) {
+              if (defaultPortfolioData && defaultPortfolioData.certifications) {
+                portfolioData.certifications = JSON.parse(JSON.stringify(defaultPortfolioData.certifications));
+              }
+            }
             localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolioData));
             renderAll();
             if (typeof populateCmsFields === 'function') {
@@ -461,24 +474,61 @@ document.addEventListener('DOMContentLoaded', () => {
     if (portfolioData.certifications && portfolioData.certifications.length > 0) {
       html += `
         <div class="education-card certifications-card">
-          <div class="education-badge">Certifications</div>
+          <div class="education-badge">Certifications &amp; Credentials</div>
           <h3 class="education-degree">Industry Certifications</h3>
           <ul class="cert-list">
-            ${portfolioData.certifications.map(cert => `
-              <li class="cert-item">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                <div>
-                  <strong>${cert.title}</strong>
-                  <span class="cert-meta">${cert.org} (${cert.year})</span>
+            ${portfolioData.certifications.map(cert => {
+              const hasFile = cert.fileUrl && cert.fileUrl.trim();
+              const isPdf = hasFile && cert.fileUrl.toLowerCase().includes('.pdf');
+              const badgeHtml = hasFile
+                ? `<span class="cert-attached-badge">📄 ${isPdf ? 'PDF Document' : 'Attached File'}</span>`
+                : `<span class="cert-attached-badge" style="background:rgba(245,158,11,0.12);color:var(--status-warning);border-color:rgba(245,158,11,0.25);">⭐ Verified Credential</span>`;
+
+              return `
+              <li class="cert-item" data-cert-id="${cert.id}" tabindex="0" role="button" aria-label="View ${cert.title} Certificate">
+                <div class="cert-item-main">
+                  <svg class="cert-check-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                  <div class="cert-info">
+                    <strong class="cert-title">${cert.title}</strong>
+                    <div class="cert-meta">
+                      <span>${cert.org} (${cert.year})</span>
+                      ${badgeHtml}
+                    </div>
+                  </div>
+                </div>
+                <div class="cert-item-actions">
+                  <button type="button" class="btn btn-sm btn-outline cert-view-btn" data-cert-btn="${cert.id}" title="View Certificate Document">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    <span>View Certificate</span>
+                  </button>
                 </div>
               </li>
-            `).join('')}
+              `;
+            }).join('')}
           </ul>
         </div>
       `;
     }
 
     container.innerHTML = html;
+
+    // Attach click and keyboard handlers to certificate items
+    container.querySelectorAll('.cert-item').forEach(item => {
+      const certId = item.getAttribute('data-cert-id');
+      if (!certId) return;
+
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('a')) return;
+        window.openCertPreview(certId);
+      });
+
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          window.openCertPreview(certId);
+        }
+      });
+    });
   };
 
   // Master Render Function
@@ -1047,6 +1097,36 @@ document.addEventListener('DOMContentLoaded', () => {
       `).join('');
     }
 
+    // Populate Certifications in CMS
+    const certCountSpan = document.getElementById('cms-cert-count');
+    if (certCountSpan) {
+      certCountSpan.textContent = (portfolioData.certifications || []).length;
+    }
+
+    const certList = document.getElementById('cms-cert-list');
+    if (certList && portfolioData.certifications) {
+      if (portfolioData.certifications.length === 0) {
+        certList.innerHTML = '<div class="empty-state">No certifications added yet. Click "+ Add Certification" to create one.</div>';
+      } else {
+        certList.innerHTML = portfolioData.certifications.map(cert => `
+          <div class="cms-item-row" data-cert-id="${cert.id}">
+            <div class="cms-item-info">
+              <span class="cms-item-title">${cert.title}</span>
+              <span class="cms-item-sub">
+                ${cert.org} (${cert.year}) 
+                ${cert.fileUrl ? '&bull; <span class="cert-file-badge">📄 Attached</span>' : '&bull; <span class="cert-file-badge badge-none">Digital Parchment</span>'}
+              </span>
+            </div>
+            <div class="cms-item-actions">
+              <button class="btn btn-sm btn-outline" onclick="window.openCertPreview('${cert.id}')">Preview</button>
+              <button class="btn btn-sm btn-secondary" onclick="window.editCertification('${cert.id}')">Edit</button>
+              <button class="btn btn-sm btn-danger" onclick="window.deleteCertification('${cert.id}')">Delete</button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
     // Refresh database messages and diagnostics
     fetchMessagesFromDb();
     fetchDbStats();
@@ -1471,6 +1551,344 @@ document.addEventListener('DOMContentLoaded', () => {
       populateCmsFields();
       showToast('Skill added!', 'success');
     }
+  };
+
+
+  /* --------------------------------------------------------------------------
+     7b. CERTIFICATIONS CMS MANAGEMENT & MODAL CONTROLLER
+     -------------------------------------------------------------------------- */
+  const certModal = document.getElementById('cert-edit-modal');
+  const certForm = document.getElementById('cert-edit-form');
+  const cmsAddCertBtn = document.getElementById('cms-add-cert-btn');
+  const certFileInput = document.getElementById('cert-file-input');
+  const certUploadBtn = document.getElementById('cert-upload-btn');
+  const certRemoveFileBtn = document.getElementById('cert-remove-file-btn');
+  const certFileStatusText = document.getElementById('cert-file-status-text');
+  const certFileUrlInput = document.getElementById('cert-file-url');
+
+  window.editCertification = (id) => {
+    if (!portfolioData.certifications) portfolioData.certifications = [];
+    const cert = portfolioData.certifications.find(c => c.id === id);
+    if (!cert) return;
+
+    document.getElementById('cert-id').value = cert.id;
+    document.getElementById('cert-title').value = cert.title || '';
+    document.getElementById('cert-org').value = cert.org || '';
+    document.getElementById('cert-year').value = cert.year || '';
+    document.getElementById('cert-desc').value = cert.desc || '';
+    document.getElementById('cert-credential-url').value = cert.credentialUrl || '';
+    if (certFileUrlInput) certFileUrlInput.value = cert.fileUrl || '';
+    document.getElementById('cert-modal-title').textContent = 'Edit Certification';
+
+    if (cert.fileUrl && cert.fileUrl.trim()) {
+      const fileName = cert.fileUrl.split('/').pop();
+      if (certFileStatusText) {
+        certFileStatusText.innerHTML = `<span class="cert-file-badge">📄 Document Attached: ${fileName}</span>`;
+      }
+      if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'inline-block';
+    } else {
+      if (certFileStatusText) {
+        certFileStatusText.textContent = 'No document attached yet (Digital credential preview will be generated).';
+      }
+      if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'none';
+    }
+
+    openModal(certModal);
+  };
+
+  window.deleteCertification = (id) => {
+    if (!confirm('Are you sure you want to delete this certification?')) return;
+    portfolioData.certifications = (portfolioData.certifications || []).filter(c => c.id !== id);
+    savePortfolioData();
+    renderEducation();
+    populateCmsFields();
+    showToast('Certification deleted successfully.', 'info');
+  };
+
+  const openNewCertModal = () => {
+    if (certForm) certForm.reset();
+    document.getElementById('cert-id').value = '';
+    document.getElementById('cert-modal-title').textContent = 'Add New Certification';
+    if (certFileUrlInput) certFileUrlInput.value = '';
+    if (certFileStatusText) {
+      certFileStatusText.textContent = 'No document attached yet (Digital credential preview will be generated).';
+    }
+    if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'none';
+    openModal(certModal);
+  };
+  if (cmsAddCertBtn) cmsAddCertBtn.addEventListener('click', openNewCertModal);
+
+  // Certificate Document Upload & Attachment Handlers
+  if (certUploadBtn && certFileInput) {
+    certUploadBtn.addEventListener('click', () => {
+      certFileInput.click();
+    });
+
+    certFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (certFileStatusText) {
+        certFileStatusText.textContent = `Uploading ${file.name}...`;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        const base64Data = evt.target.result;
+
+        // Try server upload API if on HTTP protocol
+        if (window.location.protocol.startsWith('http')) {
+          try {
+            const res = await fetch(getApiUrl('/api/upload-certificate'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                fileBase64: base64Data,
+                filename: file.name
+              })
+            });
+
+            if (res.ok) {
+              const result = await res.json();
+              if (certFileUrlInput) certFileUrlInput.value = result.fileUrl;
+              if (certFileStatusText) {
+                certFileStatusText.innerHTML = `<span class="cert-file-badge">✓ Document Uploaded: ${result.filename || file.name}</span>`;
+              }
+              if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'inline-block';
+              showToast('Certificate document uploaded successfully!', 'success');
+              return;
+            }
+          } catch (uploadErr) {
+            console.warn('Server upload failed, falling back to local data URL:', uploadErr);
+          }
+        }
+
+        // Fallback: embed base64 directly
+        if (certFileUrlInput) certFileUrlInput.value = base64Data;
+        if (certFileStatusText) {
+          certFileStatusText.innerHTML = `<span class="cert-file-badge">✓ Document Attached: ${file.name}</span>`;
+        }
+        if (certRemoveFileBtn) certRemoveFileBtn.style.display = 'inline-block';
+        showToast('Certificate document attached!', 'success');
+      };
+
+      reader.readAsDataURL(file);
+    });
+  }
+
+  if (certRemoveFileBtn) {
+    certRemoveFileBtn.addEventListener('click', () => {
+      if (certFileInput) certFileInput.value = '';
+      if (certFileUrlInput) certFileUrlInput.value = '';
+      if (certFileStatusText) {
+        certFileStatusText.textContent = 'No document attached yet (Digital credential preview will be generated).';
+      }
+      certRemoveFileBtn.style.display = 'none';
+      showToast('Attached certificate document removed.', 'info');
+    });
+  }
+
+  if (certForm) {
+    certForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const id = document.getElementById('cert-id').value;
+      const title = document.getElementById('cert-title').value.trim();
+      const org = document.getElementById('cert-org').value.trim();
+      const year = document.getElementById('cert-year').value.trim();
+      const desc = document.getElementById('cert-desc').value.trim();
+      const credentialUrl = document.getElementById('cert-credential-url').value.trim();
+      const fileUrl = certFileUrlInput ? certFileUrlInput.value.trim() : '';
+
+      if (!portfolioData.certifications) portfolioData.certifications = [];
+
+      if (id) {
+        const item = portfolioData.certifications.find(x => x.id === id);
+        if (item) {
+          item.title = title;
+          item.org = org;
+          item.year = year;
+          item.desc = desc;
+          item.credentialUrl = credentialUrl;
+          item.fileUrl = fileUrl;
+        }
+      } else {
+        portfolioData.certifications.push({
+          id: 'cert-' + Date.now(),
+          title,
+          org,
+          year,
+          desc,
+          credentialUrl,
+          fileUrl
+        });
+      }
+
+      savePortfolioData();
+      renderEducation();
+      populateCmsFields();
+      closeModal(certModal);
+      showToast('Certification successfully saved!', 'success');
+    });
+  }
+
+
+  /* --------------------------------------------------------------------------
+     7c. CERTIFICATION PREVIEW MODAL ENGINE (Digital Parchment & Document Viewer)
+     -------------------------------------------------------------------------- */
+  const certPreviewModal = document.getElementById('cert-preview-modal');
+  const certPreviewTitle = document.getElementById('cert-preview-title');
+  const certPreviewSubtitle = document.getElementById('cert-preview-subtitle');
+  const certPreviewBody = document.getElementById('cert-preview-body');
+  const certDownloadBtn = document.getElementById('cert-download-btn');
+  const certFullscreenBtn = document.getElementById('cert-fullscreen-btn');
+  const certPrintBtn = document.getElementById('cert-print-btn');
+  const certCredentialBtn = document.getElementById('cert-credential-btn');
+  const certAdminEditBtn = document.getElementById('cert-admin-edit-btn');
+
+  window.openCertPreview = (certId) => {
+    if (!portfolioData || !portfolioData.certifications) return;
+    const cert = portfolioData.certifications.find(c => c.id === certId);
+    if (!cert) return;
+
+    if (certPreviewTitle) certPreviewTitle.textContent = cert.title;
+    if (certPreviewSubtitle) {
+      certPreviewSubtitle.innerHTML = `${cert.org} &bull; Issued ${cert.year}`;
+    }
+
+    const hasFile = cert.fileUrl && cert.fileUrl.trim();
+    const isPdf = hasFile && cert.fileUrl.toLowerCase().includes('.pdf');
+
+    // Configure Toolbar Action Buttons
+    if (certDownloadBtn) {
+      if (hasFile) {
+        certDownloadBtn.style.display = 'inline-flex';
+        certDownloadBtn.href = cert.fileUrl;
+        const fileExt = isPdf ? '.pdf' : '.png';
+        const safeName = (cert.title || 'certificate').replace(/[^a-zA-Z0-9_-]/g, '_');
+        certDownloadBtn.setAttribute('download', `${safeName}${fileExt}`);
+        certDownloadBtn.onclick = null;
+      } else {
+        certDownloadBtn.style.display = 'inline-flex';
+        certDownloadBtn.href = '#';
+        certDownloadBtn.removeAttribute('download');
+        certDownloadBtn.onclick = (e) => {
+          e.preventDefault();
+          window.print();
+        };
+      }
+    }
+
+    if (certFullscreenBtn) {
+      if (hasFile) {
+        certFullscreenBtn.style.display = 'inline-flex';
+        certFullscreenBtn.href = cert.fileUrl;
+      } else {
+        certFullscreenBtn.style.display = 'none';
+      }
+    }
+
+    if (certPrintBtn) {
+      certPrintBtn.onclick = () => {
+        window.print();
+      };
+    }
+
+    if (certCredentialBtn) {
+      if (cert.credentialUrl && cert.credentialUrl.trim()) {
+        certCredentialBtn.style.display = 'inline-flex';
+        certCredentialBtn.href = cert.credentialUrl;
+      } else {
+        certCredentialBtn.style.display = 'none';
+      }
+    }
+
+    if (certAdminEditBtn) {
+      if (typeof isUserAuthenticated === 'function' && isUserAuthenticated()) {
+        certAdminEditBtn.style.display = 'inline-flex';
+        certAdminEditBtn.onclick = () => {
+          closeModal(certPreviewModal);
+          window.editCertification(cert.id);
+        };
+      } else {
+        certAdminEditBtn.style.display = 'none';
+      }
+    }
+
+    // Render Preview Modal Content
+    if (certPreviewBody) {
+      if (hasFile) {
+        if (isPdf) {
+          certPreviewBody.innerHTML = `
+            <object data="${cert.fileUrl}" type="application/pdf" class="cert-pdf-frame">
+              <iframe src="${cert.fileUrl}" class="cert-pdf-frame" title="${cert.title}">
+                <div class="cert-pdf-fallback">
+                  <p style="margin-bottom: 1rem;">PDF preview is available for download:</p>
+                  <a href="${cert.fileUrl}" download class="btn btn-primary">Download ${cert.title} PDF</a>
+                </div>
+              </iframe>
+            </object>
+          `;
+        } else {
+          certPreviewBody.innerHTML = `
+            <div class="cert-img-wrapper">
+              <img src="${cert.fileUrl}" alt="${cert.title}" class="cert-preview-img" loading="lazy">
+            </div>
+          `;
+        }
+      } else {
+        // Authentic Digital Parchment Certificate
+        const recipientName = (portfolioData.profile && portfolioData.profile.name) ? portfolioData.profile.name : 'Keerthan Tunkoju';
+        const descriptionText = cert.desc || 'Demonstrating technical proficiency, professional competency, and completion of practical training curriculum.';
+
+        certPreviewBody.innerHTML = `
+          <div class="cert-paper">
+            <div class="cert-border-outer">
+              <div class="cert-border-inner">
+                <div class="cert-corner cert-corner-tl"></div>
+                <div class="cert-corner cert-corner-tr"></div>
+                <div class="cert-corner cert-corner-bl"></div>
+                <div class="cert-corner cert-corner-br"></div>
+
+                <div class="cert-emblem" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg>
+                </div>
+
+                <div class="cert-kicker">Certificate of Recognition &amp; Achievement</div>
+                <h2 class="cert-headline">Certificate of Completion</h2>
+
+                <p class="cert-recipient-intro">This is proudly presented and awarded to</p>
+                <h3 class="cert-recipient-name">${recipientName}</h3>
+
+                <p class="cert-for-text">${descriptionText}</p>
+
+                <div class="cert-awarded-title">${cert.title}</div>
+                <div class="cert-org-line">Issued by <strong>${cert.org}</strong> &bull; Completed ${cert.year}</div>
+
+                <div class="cert-footer-row">
+                  <div class="cert-signature-block">
+                    <div class="cert-sig-line">${cert.org}</div>
+                    <div class="cert-sig-label">Authorized Authority</div>
+                  </div>
+
+                  <div class="cert-gold-seal">
+                    <span>OFFICIAL</span>
+                    <strong>VERIFIED</strong>
+                    <span>CREDENTIAL</span>
+                  </div>
+
+                  <div class="cert-signature-block">
+                    <div class="cert-sig-line">${cert.year}</div>
+                    <div class="cert-sig-label">Date Issued</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    openModal(certPreviewModal);
   };
 
 

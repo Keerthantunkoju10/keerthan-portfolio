@@ -157,7 +157,7 @@ const defaultPortfolioData = {
         "Watershed"
       ],
       "description": "Built automated semantic segmentation models using Convolutional Neural Networks (CNN) and watershed algorithms on the BraTS MRI dataset. Deployed a responsive web interface allowing healthcare practitioners to execute inference directly without manual ML environment setups.",
-      "githubUrl": "https://github.com/Keerthantunkoju10",
+      "githubUrl": "https://github.com/Keerthantunkoju10/Deep-Learning-Methods-for-Identifying-Brain-Tumors.git",
       "liveUrl": ""
     },
     {
@@ -231,13 +231,19 @@ const defaultPortfolioData = {
       "id": "cert-1",
       "title": "Web Development Internship Certification",
       "org": "Intrainz",
-      "year": "2023"
+      "year": "2023",
+      "desc": "",
+      "credentialUrl": "",
+      "fileUrl": "Assets/certifications/internship_certificate__keerthan_tunkoju-1790667168838.pdf"
     },
     {
       "id": "cert-2",
       "title": "Python Programming Internship Certification",
       "org": "CodSoft",
-      "year": "2023"
+      "year": "2023",
+      "desc": "",
+      "credentialUrl": "",
+      "fileUrl": "Assets/certifications/keerthan_tunkoju-1790667256921.pdf"
     }
   ]
 };

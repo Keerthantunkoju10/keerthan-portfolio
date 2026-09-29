@@ -157,6 +157,56 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ==========================================
+  // 1c. API: Upload Certificate Document (PDF or Image)
+  // ==========================================
+  if (url.pathname === '/api/upload-certificate' && req.method === 'POST') {
+    try {
+      const { fileBase64, filename } = await parseBody(req);
+      if (!fileBase64) {
+        return sendJson(res, 400, { error: 'No certificate file data provided' });
+      }
+
+      const certsDir = path.join(__dirname, 'Assets', 'certifications');
+      if (!fs.existsSync(certsDir)) {
+        fs.mkdirSync(certsDir, { recursive: true });
+      }
+
+      let buffer;
+      let ext = '.pdf';
+      const pdfMatch = fileBase64.match(/^data:application\/pdf;base64,(.+)$/);
+      const imgMatch = fileBase64.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+
+      if (pdfMatch) {
+        ext = '.pdf';
+        buffer = Buffer.from(pdfMatch[1], 'base64');
+      } else if (imgMatch) {
+        const type = imgMatch[1].toLowerCase();
+        if (type === 'jpeg' || type === 'jpg') ext = '.jpg';
+        else if (type === 'png') ext = '.png';
+        else if (type === 'webp') ext = '.webp';
+        buffer = Buffer.from(imgMatch[2], 'base64');
+      } else {
+        buffer = Buffer.from(fileBase64, 'base64');
+      }
+
+      const cleanName = (filename || 'certificate').replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+      const outName = `${cleanName}-${Date.now()}${ext}`;
+      const targetPath = path.join(certsDir, outName);
+      fs.writeFileSync(targetPath, buffer);
+
+      const relativeUrl = `Assets/certifications/${outName}`;
+      return sendJson(res, 200, {
+        success: true,
+        fileUrl: relativeUrl,
+        filename: outName,
+        message: 'Certificate uploaded successfully'
+      });
+    } catch (err) {
+      return sendJson(res, 500, { error: 'Failed to upload certificate: ' + err.message });
+    }
+  }
+
+  // ==========================================
   // 2. API: Contact Messages (SQLite DB)
   // ==========================================
   if (url.pathname === '/api/contact' && req.method === 'POST') {

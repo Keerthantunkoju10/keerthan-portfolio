@@ -825,12 +825,14 @@ document.addEventListener('DOMContentLoaded', () => {
       closeModal(adminLoginModal);
       if (adminLoginForm) adminLoginForm.reset();
       updateAdminUI();
-      // Automatically turn on edit mode for convenient in-place editing
+      // Automatically turn on edit mode and open CMS Dashboard
       setEditMode(true);
       fetchMessagesFromDb();
       loadEmailSettings();
       fetchDbStats();
-      showToast('Authenticated as Admin! Visual Edit Mode is now ON.', 'success');
+      openModal(document.getElementById('admin-cms-modal'));
+      populateCmsFields();
+      showToast('Authenticated as Admin! CMS Dashboard opened.', 'success');
     } else {
       if (loginErrorMsg) {
         loginErrorMsg.textContent = 'Incorrect admin password.';
@@ -926,6 +928,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Listeners for Auth
   if (adminTriggerBtn) {
     adminTriggerBtn.addEventListener('click', () => {
+      if (isUserAuthenticated()) {
+        openModal(document.getElementById('admin-cms-modal'));
+        populateCmsFields();
+      } else {
+        openAdminLoginModalWithTimer();
+      }
+    });
+  }
+
+  const footerAdminBtn = document.getElementById('footer-admin-btn');
+  if (footerAdminBtn) {
+    footerAdminBtn.addEventListener('click', () => {
       if (isUserAuthenticated()) {
         openModal(document.getElementById('admin-cms-modal'));
         populateCmsFields();

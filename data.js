@@ -172,7 +172,7 @@ const defaultPortfolioData = {
         "Supervised Learning"
       ],
       "description": "Engineered an end-to-end ML pipeline modeling complex non-linear relationships between soil profiles, meteorological records, and agricultural management practices. Conducted systematic benchmarking across multiple supervised algorithms to achieve high prediction efficiency and low relative error.",
-      "githubUrl": "https://github.com/Keerthantunkoju10/Crop-Yield-Prediction-Using-Machine-Learning.git",
+      "githubUrl": "https://github.com/Keerthantunkoju10",
       "liveUrl": ""
     },
     {
@@ -232,18 +232,18 @@ const defaultPortfolioData = {
       "title": "Web Development Internship Certification",
       "org": "Intrainz",
       "year": "2023",
-      "desc": "Industrial training in full-stack frontend development, HTML5, CSS3, JavaScript, and responsive website architecture.",
-      "credentialUrl": "./Assets/certifications/internship_certificate__keerthan_tunkoju-1790667168838.pdf",
-      "fileUrl": "./Assets/certifications/internship_certificate__keerthan_tunkoju-1790667168838.pdf"
+      "desc": "",
+      "credentialUrl": "",
+      "fileUrl": "Assets/certifications/internship_certificate__keerthan_tunkoju-1790667168838.pdf"
     },
     {
       "id": "cert-2",
       "title": "Python Programming Internship Certification",
       "org": "CodSoft",
       "year": "2023",
-      "desc": "Practical software engineering internship building algorithmic solutions, desktop GUI utilities, and security tools in Python.",
-      "credentialUrl": "./Assets/certifications/keerthan_tunkoju-1790667256921.pdf",
-      "fileUrl": "./Assets/certifications/keerthan_tunkoju-1790667256921.pdf"
+      "desc": "",
+      "credentialUrl": "",
+      "fileUrl": "Assets/certifications/keerthan_tunkoju-1790667256921.pdf"
     }
   ]
 };

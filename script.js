@@ -787,9 +787,37 @@ document.addEventListener('DOMContentLoaded', () => {
   const loginAdmin = async (password) => {
     if (!password) return;
     const computedHash = await sha256(password);
-    const currentHash = getStoredHash();
+    let isAuthenticated = false;
 
-    if (computedHash === currentHash) {
+    // 1. Authenticate against central SQLite database (works across all devices)
+    if (window.location.protocol.startsWith('http')) {
+      try {
+        const res = await fetch(getApiUrl('/api/auth/login'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ hash: computedHash })
+        });
+        if (res.ok) {
+          const authData = await res.json();
+          if (authData && authData.authenticated === true) {
+            isAuthenticated = true;
+            setStoredHash(computedHash);
+          }
+        }
+      } catch (e) {
+        console.warn('Backend login endpoint unreachable, checking local hash cache:', e);
+      }
+    }
+
+    // 2. Fallback to cached local hash if offline / static
+    if (!isAuthenticated) {
+      const currentHash = getStoredHash();
+      if (computedHash === currentHash) {
+        isAuthenticated = true;
+      }
+    }
+
+    if (isAuthenticated) {
       stopAdminLoginTimer();
       sessionStorage.setItem(AUTH_KEY, 'true');
       localStorage.setItem(ADMIN_DEVICE_KEY, 'true'); // Authorize device upon login
@@ -799,6 +827,9 @@ document.addEventListener('DOMContentLoaded', () => {
       updateAdminUI();
       // Automatically turn on edit mode for convenient in-place editing
       setEditMode(true);
+      fetchMessagesFromDb();
+      loadEmailSettings();
+      fetchDbStats();
       showToast('Authenticated as Admin! Visual Edit Mode is now ON.', 'success');
     } else {
       if (loginErrorMsg) {
@@ -1034,6 +1065,9 @@ document.addEventListener('DOMContentLoaded', () => {
     openCmsBtn.addEventListener('click', () => {
       openModal(cmsModal);
       populateCmsFields();
+      fetchMessagesFromDb();
+      loadEmailSettings();
+      fetchDbStats();
     });
   }
 
@@ -1044,8 +1078,17 @@ document.addEventListener('DOMContentLoaded', () => {
       tabPanes.forEach(p => p.classList.remove('active'));
 
       btn.classList.add('active');
-      const targetPane = document.getElementById(btn.getAttribute('data-tab'));
+      const tabId = btn.getAttribute('data-tab');
+      const targetPane = document.getElementById(tabId);
       if (targetPane) targetPane.classList.add('active');
+
+      if (tabId === 'tab-messages') {
+        fetchMessagesFromDb();
+      } else if (tabId === 'tab-email-settings') {
+        loadEmailSettings();
+      } else if (tabId === 'tab-database') {
+        fetchDbStats();
+      }
     });
   });
 
@@ -2250,15 +2293,32 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const newHash = await sha256(newPass);
+
+      // Synchronize updated password to centralized SQLite database for all devices
+      if (window.location.protocol.startsWith('http')) {
+        try {
+          const res = await fetch(getApiUrl('/api/auth/change-password'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ currentHash: currHash, newHash: newHash })
+          });
+          if (res.ok) {
+            console.log('✅ Admin password updated in central SQLite database.');
+          }
+        } catch (serverErr) {
+          console.warn('Backend password sync error:', serverErr);
+        }
+      }
+
       setStoredHash(newHash);
 
       if (passwordFeedback) {
         passwordFeedback.hidden = false;
         passwordFeedback.className = 'form-alert success';
-        passwordFeedback.textContent = 'Admin password updated successfully!';
+        passwordFeedback.textContent = 'Admin password updated in database across all devices!';
       }
       changePassForm.reset();
-      showToast('Admin password changed successfully!', 'success');
+      showToast('Admin password changed and saved in database!', 'success');
     });
   }
 
@@ -2510,65 +2570,316 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   /* --------------------------------------------------------------------------
-     14. DATABASE INBOX & DIAGNOSTICS HELPERS
+     14. CENTRALIZED INBOX & GOOGLE EMAIL SETTINGS SYSTEM (SQLite Backend)
      -------------------------------------------------------------------------- */
+  let loadedInboxMessages = [];
+  let currentInboxFilter = 'all';
+  let currentInboxSearch = '';
+
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  const renderInboxMessages = () => {
+    const container = document.getElementById('messages-list-container');
+    if (!container) return;
+
+    let filtered = loadedInboxMessages || [];
+
+    // Filter by tab pill
+    if (currentInboxFilter === 'unread') {
+      filtered = filtered.filter(m => !m.is_read || m.is_read === 0 || m.is_read === '0');
+    } else if (currentInboxFilter === 'replied') {
+      filtered = filtered.filter(m => m.reply_sent === 1 || m.reply_sent === '1');
+    }
+
+    // Filter by keyword search
+    if (currentInboxSearch && currentInboxSearch.trim().length > 0) {
+      const q = currentInboxSearch.toLowerCase().trim();
+      filtered = filtered.filter(m =>
+        (m.name && m.name.toLowerCase().includes(q)) ||
+        (m.email && m.email.toLowerCase().includes(q)) ||
+        (m.subject && m.subject.toLowerCase().includes(q)) ||
+        (m.message && m.message.toLowerCase().includes(q))
+      );
+    }
+
+    if (filtered.length === 0) {
+      if (loadedInboxMessages.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">📬</div>
+            <strong>No inquiries received yet.</strong>
+            <p style="margin:0.25rem 0 0;font-size:0.8rem;color:var(--text-muted);">
+              When visitors or recruiters submit messages via your contact form, they are saved in SQLite (<code>portfolio.db</code>) and will appear here in real time on any device.
+            </p>
+          </div>
+        `;
+      } else {
+        container.innerHTML = `
+          <div class="empty-state">
+            <strong>No inquiries match your filter or search.</strong>
+            <p style="margin:0.25rem 0 0;font-size:0.8rem;color:var(--text-muted);">
+              Try selecting "All" or clearing the search keyword.
+            </p>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    container.innerHTML = filtered.map(m => {
+      const isUnread = !m.is_read || m.is_read === 0 || m.is_read === '0';
+      const isGmailSent = m.email_sent === 1 || m.email_sent === '1';
+      const isReplied = m.reply_sent === 1 || m.reply_sent === '1';
+
+      return `
+        <div class="msg-card ${isUnread ? 'is-unread' : ''}" data-msg-id="${m.id}">
+          <div class="msg-header">
+            <div class="msg-sender-meta">
+              <div class="msg-sender-row">
+                <span class="msg-sender">${escapeHtml(m.name)}</span>
+                <a href="mailto:${escapeHtml(m.email)}" class="msg-email" title="Click to email">${escapeHtml(m.email)}</a>
+              </div>
+              <time class="msg-date">🕒 ${new Date(m.created_at).toLocaleString()}</time>
+            </div>
+
+            <div class="msg-meta-badges">
+              ${isUnread 
+                ? '<span class="msg-badge msg-badge-new">NEW</span>' 
+                : '<span class="msg-badge msg-badge-read">READ</span>'}
+              
+              ${isGmailSent 
+                ? '<span class="msg-badge msg-badge-gmail" title="Notification delivered to your Gmail inbox">✉️ Gmail Alert Sent</span>' 
+                : '<span class="msg-badge" title="Stored safely in centralized SQLite database">🗄️ In SQLite DB</span>'}
+
+              ${isReplied 
+                ? '<span class="msg-badge msg-badge-replied" title="You sent a reply to this inquiry">↩️ Replied</span>' 
+                : ''}
+            </div>
+          </div>
+
+          <div class="msg-subject-row">
+            <span>Subject:</span>
+            <strong>${escapeHtml(m.subject || 'Portfolio Inquiry')}</strong>
+          </div>
+
+          <div class="msg-body">${escapeHtml(m.message)}</div>
+
+          ${isReplied && m.reply_message ? `
+            <div class="msg-reply-history">
+              <div class="msg-reply-history-header">
+                <span>↩️ Admin Reply via Gmail</span>
+                <time>${m.replied_at ? new Date(m.replied_at).toLocaleString() : 'Delivered'}</time>
+              </div>
+              <div class="msg-reply-history-content">${escapeHtml(m.reply_message)}</div>
+            </div>
+          ` : ''}
+
+          <!-- Inline Quick Reply Box -->
+          <div id="quick-reply-box-${m.id}" class="msg-quick-reply-box" style="display:none;">
+            <textarea id="reply-text-${m.id}" placeholder="Type your reply to ${escapeHtml(m.name)}... (Will be delivered from your configured Gmail address)"></textarea>
+            <div class="quick-reply-actions">
+              <button type="button" class="btn btn-sm btn-outline" onclick="window.toggleQuickReply(${m.id})">Cancel</button>
+              <button type="button" class="btn btn-sm btn-primary" id="send-reply-btn-${m.id}" onclick="window.sendQuickReply(${m.id}, '${escapeHtml(m.email)}', '${escapeHtml(m.subject || 'Portfolio Inquiry')}')">
+                <span>🚀 Send Reply via Gmail</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="msg-actions">
+            <button class="btn btn-sm btn-primary" onclick="window.toggleQuickReply(${m.id})">
+              💬 Reply via Gmail
+            </button>
+            <a href="mailto:${escapeHtml(m.email)}?subject=Re: ${encodeURIComponent(m.subject || 'Portfolio Inquiry')}" class="btn btn-sm btn-outline" title="Open native mail client">
+              ✉️ Open in Mail App
+            </a>
+            <button class="btn btn-sm btn-outline" onclick="window.toggleMessageRead(${m.id}, ${isUnread ? 1 : 0})">
+              ${isUnread ? 'Mark as Read' : 'Mark as Unread'}
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="window.deleteMessageFromDb(${m.id})" title="Delete inquiry from SQLite database">
+              🗑️ Delete
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  };
+
   const fetchMessagesFromDb = async () => {
     let messages = [];
     if (window.location.protocol.startsWith('http')) {
       try {
         const res = await fetch(getApiUrl('/api/messages'));
         if (res.ok) messages = await res.json();
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Failed to fetch messages from server:', e);
+      }
     }
+
     if (!messages || messages.length === 0) {
       messages = JSON.parse(localStorage.getItem('keerthan_contact_messages') || '[]');
     }
 
+    loadedInboxMessages = messages || [];
+
+    // Calculate badge counts
+    const unreadCount = loadedInboxMessages.filter(m => !m.is_read || m.is_read === 0 || m.is_read === '0').length;
+    const repliedCount = loadedInboxMessages.filter(m => m.reply_sent === 1 || m.reply_sent === '1').length;
+
     const badge = document.getElementById('msg-badge-count');
-    if (badge) badge.textContent = messages.length;
+    if (badge) badge.textContent = unreadCount;
 
-    const container = document.getElementById('messages-list-container');
-    if (container) {
-      if (messages.length === 0) {
-        container.innerHTML = '<div class="empty-state">No inquiries received yet. Messages sent via the contact form will be stored in the database and appear here.</div>';
-        return;
+    const countAll = document.getElementById('count-all-msgs');
+    if (countAll) countAll.textContent = loadedInboxMessages.length;
+
+    const countUnread = document.getElementById('count-unread-msgs');
+    if (countUnread) countUnread.textContent = unreadCount;
+
+    const countReplied = document.getElementById('count-replied-msgs');
+    if (countReplied) countReplied.textContent = repliedCount;
+
+    renderInboxMessages();
+  };
+
+  // Toggle Read/Unread status
+  window.toggleMessageRead = async (id, isRead) => {
+    if (window.location.protocol.startsWith('http')) {
+      try {
+        await fetch(getApiUrl(`/api/messages/${id}/read`), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isRead: !!isRead })
+        });
+      } catch (e) {}
+    }
+
+    // Update local state
+    const msg = loadedInboxMessages.find(m => m.id === id || String(m.id) === String(id));
+    if (msg) msg.is_read = isRead ? 1 : 0;
+    fetchMessagesFromDb();
+    fetchDbStats();
+    showToast(isRead ? 'Marked inquiry as read.' : 'Marked inquiry as unread.', 'info');
+  };
+
+  // Mark all messages as read
+  const markAllReadBtn = document.getElementById('mark-all-read-btn');
+  if (markAllReadBtn) {
+    markAllReadBtn.addEventListener('click', async () => {
+      if (window.location.protocol.startsWith('http')) {
+        try {
+          await fetch(getApiUrl('/api/messages/mark-all-read'), { method: 'POST' });
+        } catch (e) {}
       }
+      loadedInboxMessages.forEach(m => { m.is_read = 1; });
+      fetchMessagesFromDb();
+      fetchDbStats();
+      showToast('All messages marked as read.', 'success');
+    });
+  }
 
-      container.innerHTML = messages.map(m => `
-        <div class="msg-card" data-msg-id="${m.id}">
-          <div class="msg-header">
-            <div>
-              <span class="msg-sender">${m.name}</span>
-              <a href="mailto:${m.email}" class="msg-email">${m.email}</a>
-            </div>
-            <time class="msg-date">${new Date(m.created_at).toLocaleString()}</time>
-          </div>
-          <div class="msg-subject">Subject: ${m.subject || 'Inquiry'}</div>
-          <div class="msg-body">${m.message}</div>
-          <div class="msg-actions">
-            <a href="mailto:${m.email}?subject=Re: ${encodeURIComponent(m.subject || 'Portfolio Inquiry')}" class="btn btn-sm btn-primary">✉️ Reply via Email</a>
-            <button class="btn btn-sm btn-danger" onclick="window.deleteMessageFromDb(${m.id})">🗑️ Delete</button>
-          </div>
-        </div>
-      `).join('');
+  // Toggle quick reply box
+  window.toggleQuickReply = (id) => {
+    const box = document.getElementById(`quick-reply-box-${id}`);
+    if (!box) return;
+    const isHidden = box.style.display === 'none';
+    box.style.display = isHidden ? 'flex' : 'none';
+    if (isHidden) {
+      const textarea = document.getElementById(`reply-text-${id}`);
+      if (textarea) textarea.focus();
     }
   };
 
+  // Send quick reply via Gmail SMTP
+  window.sendQuickReply = async (id, recipientEmail, subject) => {
+    const textarea = document.getElementById(`reply-text-${id}`);
+    const sendBtn = document.getElementById(`send-reply-btn-${id}`);
+    if (!textarea) return;
+
+    const replyText = textarea.value.trim();
+    if (!replyText) {
+      showToast('Please type your reply before sending.', 'error');
+      textarea.focus();
+      return;
+    }
+
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.querySelector('span').textContent = 'Sending via Gmail...';
+    }
+
+    try {
+      const res = await fetch(getApiUrl(`/api/messages/${id}/reply`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          replyText,
+          recipientEmail,
+          subject
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Reply delivered to ${recipientEmail} via Gmail!`, 'success', 4000);
+        window.toggleQuickReply(id);
+        fetchMessagesFromDb();
+      } else {
+        showToast(data.error || 'Failed to send reply via Gmail.', 'error', 5000);
+      }
+    } catch (err) {
+      showToast('Network error while sending reply: ' + err.message, 'error');
+    } finally {
+      if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.querySelector('span').textContent = '🚀 Send Reply via Gmail';
+      }
+    }
+  };
+
+  // Delete message from database
   window.deleteMessageFromDb = async (id) => {
-    if (!confirm('Are you sure you want to delete this message from the database?')) return;
+    if (!confirm('Are you sure you want to delete this message from the central database? This action cannot be undone.')) return;
     if (window.location.protocol.startsWith('http')) {
       try {
         await fetch(getApiUrl(`/api/messages/${id}`), { method: 'DELETE' });
       } catch (e) {}
     }
+    loadedInboxMessages = loadedInboxMessages.filter(x => x.id !== id && String(x.id) !== String(id));
     const local = JSON.parse(localStorage.getItem('keerthan_contact_messages') || '[]');
     const filtered = local.filter(x => x.id !== id && String(x.id) !== String(id));
     localStorage.setItem('keerthan_contact_messages', JSON.stringify(filtered));
     fetchMessagesFromDb();
     fetchDbStats();
-    showToast('Inquiry deleted from database.', 'info');
+    showToast('Inquiry permanently removed from database.', 'info');
   };
 
+  // Wire search input
+  const inboxSearchInput = document.getElementById('inbox-search-input');
+  if (inboxSearchInput) {
+    inboxSearchInput.addEventListener('input', (e) => {
+      currentInboxSearch = e.target.value;
+      renderInboxMessages();
+    });
+  }
+
+  // Wire filter pills
+  document.querySelectorAll('.filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentInboxFilter = btn.getAttribute('data-filter') || 'all';
+      renderInboxMessages();
+    });
+  });
+
+  // Database stats updater
   const fetchDbStats = async () => {
     if (window.location.protocol.startsWith('http')) {
       try {
@@ -2579,7 +2890,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const msgs = document.getElementById('db-stat-msgs');
           const size = document.getElementById('db-stat-size');
           if (eng) eng.textContent = stats.databaseEngine;
-          if (msgs) msgs.textContent = stats.totalMessages;
+          if (msgs) msgs.textContent = `${stats.totalMessages} (${stats.unreadMessages} unread)`;
           if (size) size.textContent = Math.round(stats.fileSizeBytes / 1024) + ' KB';
         }
       } catch (e) {}
@@ -2590,7 +2901,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (refreshMsgBtn) {
     refreshMsgBtn.addEventListener('click', () => {
       fetchMessagesFromDb();
-      showToast('Inbox refreshed from database.', 'info');
+      fetchDbStats();
+      showToast('Centralized inbox refreshed from SQLite database.', 'info');
     });
   }
 
@@ -2598,6 +2910,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (dbResyncBtn) {
     dbResyncBtn.addEventListener('click', () => {
       loadPortfolioData();
+      fetchMessagesFromDb();
+      loadEmailSettings();
       fetchDbStats();
       showToast('Database resynchronized successfully.', 'success');
     });
@@ -2605,12 +2919,248 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   /* --------------------------------------------------------------------------
-     15. INITIAL BOOTSTRAP
+     15. GOOGLE APP PASSWORD & EMAIL SETTINGS ENGINE
+     -------------------------------------------------------------------------- */
+  const emailSettingsForm = document.getElementById('email-settings-form');
+  const testEmailBtn = document.getElementById('test-email-settings-btn');
+  const emailFeedback = document.getElementById('email-settings-feedback');
+  const toggleAppPasswordBtn = document.getElementById('toggle-app-password-btn');
+
+  const loadEmailSettings = async () => {
+    if (!window.location.protocol.startsWith('http')) return;
+    try {
+      const res = await fetch(getApiUrl('/api/settings/email'));
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const gmailUserInput = document.getElementById('cfg-gmail-user');
+      const appPassInput = document.getElementById('cfg-app-password');
+      const notifyEmailInput = document.getElementById('cfg-notify-email');
+      const senderNameInput = document.getElementById('cfg-sender-name');
+      const notifEnabledCheck = document.getElementById('cfg-email-notifications-enabled');
+      const autoReplyCheck = document.getElementById('cfg-auto-reply-enabled');
+      const passStatusSpan = document.getElementById('cfg-app-pass-status');
+      const smtpChip = document.getElementById('google-smtp-status-chip');
+      const inboxEmailChip = document.getElementById('inbox-email-status-chip');
+
+      if (gmailUserInput) gmailUserInput.value = data.gmailUser || '';
+      if (notifyEmailInput) notifyEmailInput.value = data.notifyEmail || '';
+      if (senderNameInput) senderNameInput.value = data.senderName || 'Keerthan Tunkoju Portfolio';
+      if (notifEnabledCheck) notifEnabledCheck.checked = !!data.emailNotificationsEnabled;
+      if (autoReplyCheck) autoReplyCheck.checked = !!data.autoReplyEnabled;
+
+      if (data.hasPassword) {
+        if (appPassInput) {
+          appPassInput.placeholder = '•••••••••••••••• (16-char App Password Active)';
+          appPassInput.value = '••••••••••••••••';
+        }
+        if (passStatusSpan) {
+          passStatusSpan.textContent = '(✓ Saved in SQLite Database for all devices)';
+          passStatusSpan.style.color = '#10b981';
+        }
+        if (smtpChip) {
+          smtpChip.textContent = '☁️ Google SMTP: Active & Ready';
+          smtpChip.style.background = 'rgba(16, 185, 129, 0.12)';
+          smtpChip.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+          smtpChip.style.color = '#10b981';
+        }
+        if (inboxEmailChip) {
+          inboxEmailChip.textContent = '✉️ Gmail Alerts: Enabled';
+          inboxEmailChip.style.color = '#10b981';
+        }
+      } else {
+        if (appPassInput) {
+          appPassInput.placeholder = 'Paste 16-character Google App Password';
+        }
+        if (passStatusSpan) {
+          passStatusSpan.textContent = '(Not configured yet)';
+          passStatusSpan.style.color = '#f59e0b';
+        }
+        if (smtpChip) {
+          smtpChip.textContent = '☁️ Google SMTP: Setup Required';
+          smtpChip.style.background = 'rgba(245, 158, 11, 0.12)';
+          smtpChip.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+          smtpChip.style.color = '#d97706';
+        }
+        if (inboxEmailChip) {
+          inboxEmailChip.textContent = '✉️ Gmail Alerts: Not Configured';
+          inboxEmailChip.style.color = '#d97706';
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load email settings:', e);
+    }
+  };
+
+  // Toggle Password Visibility
+  if (toggleAppPasswordBtn) {
+    toggleAppPasswordBtn.addEventListener('click', () => {
+      const input = document.getElementById('cfg-app-password');
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        toggleAppPasswordBtn.textContent = '🙈';
+        toggleAppPasswordBtn.title = 'Hide password';
+      } else {
+        input.type = 'password';
+        toggleAppPasswordBtn.textContent = '👁️';
+        toggleAppPasswordBtn.title = 'Show password';
+      }
+    });
+  }
+
+  // Save Email Settings Form
+  if (emailSettingsForm) {
+    emailSettingsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const saveBtn = document.getElementById('save-email-settings-btn');
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.querySelector('span').textContent = 'Saving to Database...';
+      }
+
+      const payload = {
+        gmailUser: document.getElementById('cfg-gmail-user').value.trim(),
+        appPassword: document.getElementById('cfg-app-password').value.trim(),
+        notifyEmail: document.getElementById('cfg-notify-email').value.trim() || document.getElementById('cfg-gmail-user').value.trim(),
+        senderName: document.getElementById('cfg-sender-name').value.trim(),
+        emailNotificationsEnabled: document.getElementById('cfg-email-notifications-enabled').checked,
+        autoReplyEnabled: document.getElementById('cfg-auto-reply-enabled').checked
+      };
+
+      try {
+        const res = await fetch(getApiUrl('/api/settings/email'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (emailFeedback) {
+            emailFeedback.hidden = false;
+            emailFeedback.className = 'form-alert success';
+            emailFeedback.innerHTML = `
+              <strong>✓ Google App Password &amp; Email Settings Saved!</strong>
+              <p style="margin:4px 0 0;font-size:0.8rem;">
+                Configuration has been written to the central SQLite database (<code>portfolio.db</code>). It is now permanently active across all devices, mobile phones, and tablets.
+              </p>
+            `;
+          }
+          showToast('Google App Password & email settings saved for all devices!', 'success', 4000);
+          loadEmailSettings();
+          fetchDbStats();
+        } else {
+          if (emailFeedback) {
+            emailFeedback.hidden = false;
+            emailFeedback.className = 'form-alert error';
+            emailFeedback.textContent = data.error || 'Failed to save email settings.';
+          }
+          showToast(data.error || 'Failed to save email settings.', 'error');
+        }
+      } catch (err) {
+        if (emailFeedback) {
+          emailFeedback.hidden = false;
+          emailFeedback.className = 'form-alert error';
+          emailFeedback.textContent = 'Network error saving settings: ' + err.message;
+        }
+        showToast('Error saving settings: ' + err.message, 'error');
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.querySelector('span').textContent = '💾 Save Email Settings for All Devices';
+        }
+      }
+    });
+  }
+
+  // Test Email Settings Button
+  if (testEmailBtn) {
+    testEmailBtn.addEventListener('click', async () => {
+      const gmailUser = document.getElementById('cfg-gmail-user').value.trim();
+      const appPassword = document.getElementById('cfg-app-password').value.trim();
+      const notifyEmail = document.getElementById('cfg-notify-email').value.trim() || gmailUser;
+
+      if (!gmailUser) {
+        showToast('Please enter your Gmail address first.', 'error');
+        document.getElementById('cfg-gmail-user').focus();
+        return;
+      }
+
+      testEmailBtn.disabled = true;
+      testEmailBtn.querySelector('span').textContent = 'Testing Google SMTP Connection...';
+
+      if (emailFeedback) {
+        emailFeedback.hidden = false;
+        emailFeedback.className = 'form-alert info';
+        emailFeedback.innerHTML = `<span>⏳ Verifying credentials with Google SMTP and dispatching test email...</span>`;
+      }
+
+      try {
+        const res = await fetch(getApiUrl('/api/settings/email/test'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            gmailUser,
+            appPassword,
+            testEmail: notifyEmail
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          if (emailFeedback) {
+            emailFeedback.className = 'form-alert success';
+            emailFeedback.innerHTML = `
+              <strong>🎉 Google App Password Authenticated Successfully!</strong>
+              <p style="margin:4px 0 0;font-size:0.8rem;">
+                ${escapeHtml(data.message)} Check your inbox at <strong>${escapeHtml(notifyEmail)}</strong> to see the test email.
+              </p>
+            `;
+          }
+          showToast(`Success! Test email sent to ${notifyEmail}.`, 'success', 5000);
+          loadEmailSettings();
+        } else {
+          if (emailFeedback) {
+            emailFeedback.className = 'form-alert error';
+            emailFeedback.innerHTML = `
+              <strong>❌ Google SMTP Connection Failed</strong>
+              <p style="margin:4px 0 0;font-size:0.8rem;line-height:1.5;">
+                ${escapeHtml(data.error || 'Failed to authenticate with Google SMTP.')}
+              </p>
+              <div style="margin-top:6px;font-size:0.75rem;opacity:0.9;">
+                <strong>Troubleshooting tips:</strong><br>
+                1. Make sure 2-Step Verification is turned ON for your Google account.<br>
+                2. Generate a 16-character App Password at <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:inherit;text-decoration:underline;">myaccount.google.com/apppasswords</a>.<br>
+                3. Do NOT use your standard account password; you must use the 16-character App Password.
+              </div>
+            `;
+          }
+          showToast('Google SMTP verification failed. Check credentials.', 'error', 6000);
+        }
+      } catch (err) {
+        if (emailFeedback) {
+          emailFeedback.className = 'form-alert error';
+          emailFeedback.textContent = 'Network error testing SMTP: ' + err.message;
+        }
+        showToast('Error testing email: ' + err.message, 'error');
+      } finally {
+        testEmailBtn.disabled = false;
+        testEmailBtn.querySelector('span').textContent = '🧪 Test Connection & Send Test Email';
+      }
+    });
+  }
+
+
+  /* --------------------------------------------------------------------------
+     16. INITIAL BOOTSTRAP
      -------------------------------------------------------------------------- */
   loadPortfolioData();
   renderAll();
   updateAdminUI();
   fetchMessagesFromDb();
+  loadEmailSettings();
   fetchDbStats();
 
 });

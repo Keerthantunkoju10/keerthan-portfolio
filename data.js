@@ -242,8 +242,8 @@ const defaultPortfolioData = {
       "org": "CodSoft",
       "year": "2023",
       "desc": "Practical software engineering internship building algorithmic solutions, desktop GUI utilities, and security tools in Python.",
-      "credentialUrl": "./Assets/certifications/internship_certificate__keerthan_tunkoju-1790667168838.pdf",
-      "fileUrl": "./Assets/certifications/internship_certificate__keerthan_tunkoju-1790667168838.pdf"
+      "credentialUrl": "./Assets/certifications/keerthan_tunkoju-1790667256921.pdf",
+      "fileUrl": "./Assets/certifications/keerthan_tunkoju-1790667256921.pdf"
     }
   ]
 };

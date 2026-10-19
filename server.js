@@ -354,7 +354,7 @@ const server = http.createServer(async (req, res) => {
           emailNotificationsEnabled: settings.email_notifications_enabled !== '0',
           autoReplyEnabled: settings.auto_reply_enabled === '1',
           hasPassword: hasPassword,
-          maskedPassword: hasPassword ? 'ioml bqxd vtkw kfni' : 'ioml bqxd vtkw kfni'
+          maskedPassword: hasPassword ? '••••••••••••••••' : ''
         });
       } catch (err) {
         return sendJson(res, 500, { error: 'Failed to retrieve email settings: ' + err.message });
@@ -644,7 +644,7 @@ server.listen(PORT, () => {
   console.log(`\n==================================================================`);
   console.log(`🚀 Keerthan Portfolio Server running at http://localhost:${PORT}`);
   console.log(`🗄️  Database: SQLite (portfolio.db) active and initialized`);
-  console.log(`📄 Resume: http://localhost:${PORT}/KeerthanTunkoju.pdf`);
+  console.log(`📄 Resume: http://localhost:${PORT}/Keerthan_Tunkoju_Resume.pdf`);
   console.log(`🔑 Admin Login: Password "Keerthan@2024"`);
   console.log(`==================================================================\n`);
 });

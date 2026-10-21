@@ -126,9 +126,9 @@ class PortfolioDatabase {
 
       // Seed Default System Settings (Gmail & App Password defaults)
       const defaultSettings = [
-        ['gmail_user', 'keerthan.dev@gmail.com'],
-        ['gmail_app_password', 'obmo gzxd lfdg gyca'],
-        ['notify_email', 'keerthan.dev@gmail.com'],
+        ['gmail_user', 'keerthantunkoju10@gmail.com'],
+        ['gmail_app_password', 'ioml bqxd vtkw kfni'],
+        ['notify_email', 'keerthantunkoju10@gmail.com'],
         ['sender_name', 'Keerthan Tunkoju Portfolio'],
         ['email_notifications_enabled', '1'],
         ['auto_reply_enabled', '0']

@@ -54,10 +54,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const STORAGE_KEY = 'keerthan_portfolio_data';
   const AUTH_KEY = 'keerthan_admin_session';
   const PASSWORD_HASH_KEY = 'keerthan_admin_hash';
-  // Default hash for 'Keerthan@2024'
+  // Default admin password SHA-256 hash
   const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4';
   const DEFAULT_GMAIL_USER = 'keerthantunkoju10@gmail.com';
-  const DEFAULT_APP_PASSWORD = 'mbhueupbdmpzkscj'; // Fixed Google App Password for all devices
+  const DEFAULT_APP_PASSWORD = '';
 
   let portfolioData = null;
   let isEditModeActive = false;

@@ -137,7 +137,7 @@ const saveMessages = async (msgs) => {
 };
 
 const DEFAULT_GMAIL_USER = 'keerthantunkoju10@gmail.com';
-const DEFAULT_APP_PASSWORD = 'mbhueupbdmpzkscj'; // Fixed Google App Password for all devices
+const DEFAULT_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
 
 const defaultMailSettings = {
   provider: 'gmail',
@@ -201,7 +201,7 @@ const normalizeAppPassword = (pass) => {
   return pass.toString().replace(/[\s-]/g, '').trim();
 };
 
-const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4'; // Keerthan@2024
+const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4'; // Default admin password hash
 let currentAdminHash = DEFAULT_HASH;
 
 const getTransporter = (settings) => {
@@ -467,9 +467,8 @@ exports.handler = async (event, context) => {
           senderName: s.from_name || 'Keerthan Tunkoju Portfolio',
           emailNotificationsEnabled: Boolean(s.notify_enabled),
           autoReplyEnabled: Boolean(s.auto_reply_enabled),
-          hasPassword: true,
-          maskedPassword: '••••••••••••••••',
-          fixedPassword: DEFAULT_APP_PASSWORD
+          hasPassword: Boolean(s.auth_pass || process.env.GMAIL_APP_PASSWORD),
+          maskedPassword: '••••••••••••••••'
         });
       }
       if (method === 'POST') {

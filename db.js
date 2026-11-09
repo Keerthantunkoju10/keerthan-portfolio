@@ -16,9 +16,9 @@ const sqlite3 = require('sqlite3').verbose();
 const defaultData = require('./data.js');
 
 const DB_FILE = path.join(__dirname, 'portfolio.db');
-const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4'; // Keerthan@2024
+const DEFAULT_HASH = 'ae0d4efe0967ec0418278cd1773114afc8c546489c092e6ccfe99216eb0ef4a4'; // Default admin password hash
 const DEFAULT_GMAIL_USER = 'keerthantunkoju10@gmail.com';
-const DEFAULT_APP_PASSWORD = 'mbhueupbdmpzkscj'; // Fixed Google App Password for all devices
+const DEFAULT_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
 
 class PortfolioDatabase {
   constructor() {
@@ -120,7 +120,7 @@ class PortfolioDatabase {
             [DEFAULT_HASH],
             (insertErr) => {
               if (insertErr) console.error('Error seeding admin user:', insertErr);
-              else console.log('🌱 Seeded default admin user (username: "admin", password: "Keerthan@2024").');
+              else console.log('🌱 Seeded default admin user.');
             }
           );
         }

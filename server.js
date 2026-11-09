@@ -99,7 +99,7 @@ const parseBody = (req) => {
 };
 
 const DEFAULT_GMAIL_USER = 'keerthantunkoju10@gmail.com';
-const DEFAULT_APP_PASSWORD = 'mbhueupbdmpzkscj'; // Fixed Google App Password for all devices
+const DEFAULT_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
 
 // Clean Google App Password by removing spaces/hyphens
 const normalizeAppPassword = (pass) => {

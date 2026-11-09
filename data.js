@@ -9,7 +9,7 @@ const defaultPortfolioData = {
   "profile": {
     "name": "Keerthan Tunkoju",
     "role": "Entry-Level Software Developer &bull; AI &amp; ML Graduate",
-    "statusText": "Available for Software Developer &amp; AI/ML Roles",
+    "statusText": "Available for Software Developer & AI/ML Roles",
     "headlineStart": "Hi, I'm ",
     "headlineAccent": "Keerthan Tunkoju",
     "headlineEnd": ".",

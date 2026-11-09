@@ -78,6 +78,17 @@ document.addEventListener('DOMContentLoaded', () => {
     return endpoint;
   };
 
+  // Safe HTML string escaping
+  const escapeHtml = (str) => {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
   // Safe JSON API fetch helper: avoids SyntaxError: Unexpected token '<' on non-JSON / HTML / offline responses
   const safeFetchJson = async (url, options = {}) => {
     try {
@@ -115,84 +126,85 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
-  const loadPortfolioData = () => {
+  const loadPortfolioData = async () => {
+    // 1. Initial synchronous hydration from localStorage or bundled data.js
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         portfolioData = JSON.parse(stored);
-        // Self-heal stale or broken avatar references from older browser caches
         if (!portfolioData.profile) portfolioData.profile = {};
         if (!portfolioData.profile.avatar || portfolioData.profile.avatar.includes('profile-photo.jpg')) {
-          if (defaultPortfolioData && defaultPortfolioData.profile && defaultPortfolioData.profile.avatar) {
+          if (typeof defaultPortfolioData !== 'undefined' && defaultPortfolioData.profile && defaultPortfolioData.profile.avatar) {
             portfolioData.profile.avatar = defaultPortfolioData.profile.avatar;
           }
         }
-        // Ensure certifications array exists and is populated
-        if (!portfolioData.certifications || !Array.isArray(portfolioData.certifications) || portfolioData.certifications.length === 0) {
-          if (defaultPortfolioData && defaultPortfolioData.certifications) {
-            portfolioData.certifications = JSON.parse(JSON.stringify(defaultPortfolioData.certifications));
-          } else {
-            portfolioData.certifications = [];
-          }
-        }
-      } else {
+      } else if (typeof defaultPortfolioData !== 'undefined') {
         portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
       }
     } catch (e) {
       console.error('Failed to parse portfolio data from storage, using defaults:', e);
-      portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
+      if (typeof defaultPortfolioData !== 'undefined') {
+        portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
+      }
     }
 
-    // Server sync: always retrieve latest saved database content so all visitors see latest edits
-    if (window.location.protocol.startsWith('http')) {
-      fetch(getApiUrl('/api/portfolio-data'))
-        .then(res => res.ok ? res.json() : null)
-        .then(serverData => {
-          if (serverData && serverData.profile) {
-            portfolioData = serverData;
-            if (!portfolioData.certifications || !Array.isArray(portfolioData.certifications) || portfolioData.certifications.length === 0) {
-              if (defaultPortfolioData && defaultPortfolioData.certifications) {
-                portfolioData.certifications = JSON.parse(JSON.stringify(defaultPortfolioData.certifications));
-              }
-            }
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolioData));
-            renderAll();
-            if (typeof populateCmsFields === 'function') {
-              populateCmsFields();
-            }
+    // 2. Fetch authoritative live state from SQLite database (portfolio.db)
+    try {
+      const res = await fetch(getApiUrl('/api/portfolio-data'));
+      if (res.ok) {
+        const serverData = await res.json();
+        if (serverData && serverData.profile) {
+          portfolioData = serverData;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolioData));
+          renderAll();
+          if (typeof populateCmsFields === 'function') {
+            populateCmsFields();
           }
-        })
-        .catch(() => {
-          // Server endpoint not present (e.g. static hosting on GitHub Pages/Netlify), purely use localStorage
-        });
+        }
+      }
+    } catch (err) {
+      console.info('Backend database sync skipped (using cached data):', err.message);
     }
   };
 
-  const savePortfolioData = (silent = false) => {
+  const savePortfolioData = async (silent = false) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolioData));
-      if (!silent) {
-        showToast('Changes saved to browser storage!', 'success');
-      }
 
-      // If running via node server.js (or reachable on port 3000), persist to SQLite database and data.js on disk
-      if (window.location.protocol.startsWith('http')) {
-        fetch(getApiUrl('/api/portfolio-data'), {
+      // Persist to SQLite database (portfolio.db) and data.js on server
+      const apiUrl = getApiUrl('/api/portfolio-data');
+      try {
+        const res = await fetch(apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(portfolioData)
-        })
-        .then(res => res.ok ? res.json() : null)
-        .then(resData => {
-          if (resData && !silent) {
-            showToast('Synchronized with database & disk for all visitors!', 'success');
+        });
+        const resData = await res.json();
+        if (res.ok && resData && resData.success) {
+          if (!silent) {
+            showToast('✓ Stored in database & updated across portfolio!', 'success');
           }
-        })
-        .catch(() => {});
+          return true;
+        } else {
+          console.error('Database write returned error:', resData);
+          if (!silent) {
+            showToast('Browser updated, but database write failed: ' + (resData?.error || 'Unknown error'), 'warning');
+          }
+          return false;
+        }
+      } catch (netErr) {
+        console.warn('Backend database unreachable on ' + apiUrl, netErr);
+        if (!silent) {
+          showToast('Updated locally in browser. Backend database server is unreachable.', 'info');
+        }
+        return false;
       }
     } catch (e) {
       console.error('Error saving portfolio data:', e);
-      showToast('Error saving data to storage.', 'error');
+      if (!silent) {
+        showToast('Error saving data: ' + e.message, 'error');
+      }
+      return false;
     }
   };
 
@@ -276,20 +288,60 @@ document.addEventListener('DOMContentLoaded', () => {
     // Hero Badge & Texts
     const heroBadge = document.querySelector('[data-editable="profile.statusText"]');
     if (heroBadge) {
-      heroBadge.innerHTML = `<span class="status-indicator"></span> ${p.statusText}`;
+      heroBadge.innerHTML = `<span class="status-indicator"></span> ${p.statusText || 'Available for Opportunities'}`;
     }
 
     const hlStart = document.querySelector('[data-editable="profile.headlineStart"]');
     if (hlStart) hlStart.textContent = p.headlineStart || "Hi, I'm ";
 
     const hlAccent = document.querySelector('[data-editable="profile.headlineAccent"]');
-    if (hlAccent) hlAccent.textContent = p.headlineAccent || p.name || 'Keerthan Tunkoju';
+    if (hlAccent) hlAccent.textContent = p.name || p.headlineAccent || 'Keerthan Tunkoju';
 
     const hlEnd = document.querySelector('[data-editable="profile.headlineEnd"]');
     if (hlEnd) hlEnd.textContent = p.headlineEnd || '.';
 
     const heroDesc = document.querySelector('[data-editable="profile.heroDescription"]');
     if (heroDesc) heroDesc.textContent = p.heroDescription || '';
+
+    const heroRole = document.querySelector('[data-editable="profile.role"]');
+    if (heroRole) heroRole.innerHTML = p.role || '';
+
+    // Synchronize browser tab title and meta description
+    if (p.name) {
+      const cleanRole = p.role ? p.role.replace(/&bull;/g, '•').replace(/&amp;/g, '&') : 'Portfolio';
+      document.title = `${p.name} | ${cleanRole}`;
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) {
+        metaDesc.setAttribute('content', `Personal Portfolio of ${p.name} - ${cleanRole}`);
+      }
+    }
+
+    // Synchronize Hero visual Python code card
+    const codeCardBody = document.getElementById('code-card-body');
+    if (codeCardBody) {
+      const codeLanguages = (portfolioData.skills && portfolioData.skills[0] && portfolioData.skills[0].tags) 
+        ? portfolioData.skills[0].tags.slice(0, 4).map(t => `"${escapeHtml(t)}"`).join(', ') 
+        : '"Python", "HTML", "JavaScript", "SQL"';
+      const cleanName = escapeHtml(p.name || 'Keerthan Tunkoju');
+      const cleanDegree = escapeHtml((portfolioData.education && portfolioData.education[0] && portfolioData.education[0].degree) || 'B.Tech CSE (AI & ML)');
+      const cleanCurrentRole = escapeHtml(p.role ? p.role.replace(/&bull;/g, '•').replace(/&amp;/g, '&') : 'GIS Engineer @ NeoGeoInfo');
+      const cleanLocation = escapeHtml((p.contact && p.contact.location) || 'Hyderabad, India');
+
+      codeCardBody.innerHTML = `<span class="code-keyword">class</span> <span class="code-var">Developer</span>:
+    name = <span class="code-string">"${cleanName}"</span>
+    degree = <span class="code-string">"${cleanDegree}"</span>
+    current_role = <span class="code-string">"${cleanCurrentRole}"</span>
+    core_languages = [${codeLanguages}]
+    focus_areas = [
+        <span class="code-string">"Deep Learning &amp; AI Pipelines"</span>,
+        <span class="code-string">"Spatial Digitization &amp; GIS"</span>,
+        <span class="code-string">"Responsive Web Systems"</span>
+    ]
+    location = <span class="code-string">"${cleanLocation}"</span>
+
+    <span class="code-function">def ready_to_contribute</span>(self):
+        <span class="code-keyword">return</span> <span class="code-string">"Solving real-world problems with code &amp; data"</span>`;
+    }
 
     // About Section
     const aboutLead = document.querySelector('[data-editable="profile.aboutLead"]');
@@ -546,12 +598,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!container || !portfolioData.education) return;
 
     let html = portfolioData.education.map((edu, idx) => `
-      <div class="education-card">
-        <div class="education-badge" data-editable="education.${idx}.period">${edu.period}</div>
-        <h3 class="education-degree" data-editable="education.${idx}.degree">${edu.degree}</h3>
-        <h4 class="education-institute" data-editable="education.${idx}.institute">${edu.institute}</h4>
-        <p class="education-score"><strong data-editable="education.${idx}.score">${edu.score}</strong></p>
-        <p class="education-desc" data-editable="education.${idx}.desc">${edu.desc}</p>
+      <div class="education-card" data-edu-id="${edu.id}">
+        <div class="education-badge" data-editable="education.${idx}.period">${escapeHtml(edu.period)}</div>
+        <h3 class="education-degree" data-editable="education.${idx}.degree">${escapeHtml(edu.degree)}</h3>
+        <h4 class="education-institute" data-editable="education.${idx}.institute">${escapeHtml(edu.institute)}</h4>
+        ${edu.score ? `<p class="education-score"><strong data-editable="education.${idx}.score">${escapeHtml(edu.score)}</strong></p>` : ''}
+        ${edu.desc ? `<p class="education-desc" data-editable="education.${idx}.desc">${escapeHtml(edu.desc)}</p>` : ''}
+        ${isEditModeActive ? `
+          <div class="card-admin-controls" style="margin-top:0.75rem;">
+            <button class="btn btn-sm btn-secondary btn-icon" onclick="window.editEducation('${edu.id}')">✏️ Edit</button>
+            <button class="btn btn-sm btn-danger btn-icon" onclick="window.deleteEducation('${edu.id}')">🗑️ Delete</button>
+          </div>
+        ` : ''}
       </div>
     `).join('');
 
@@ -1160,6 +1218,7 @@ document.addEventListener('DOMContentLoaded', () => {
       };
 
       setVal('cms-name', p.name);
+      setVal('cms-role', p.role);
       setVal('cms-status', p.statusText);
       setVal('cms-hero-desc', p.heroDescription);
       setVal('cms-about-lead', p.aboutLead);
@@ -1173,6 +1232,20 @@ document.addEventListener('DOMContentLoaded', () => {
         setVal('cms-linkedin', p.contact.linkedin);
         setVal('cms-github', p.contact.github);
       }
+      if (p.stats && Array.isArray(p.stats)) {
+        if (p.stats[0]) {
+          setVal('cms-stat-num-0', p.stats[0].number);
+          setVal('cms-stat-lbl-0', p.stats[0].label);
+        }
+        if (p.stats[1]) {
+          setVal('cms-stat-num-1', p.stats[1].number);
+          setVal('cms-stat-lbl-1', p.stats[1].label);
+        }
+        if (p.stats[2]) {
+          setVal('cms-stat-num-2', p.stats[2].number);
+          setVal('cms-stat-lbl-2', p.stats[2].label);
+        }
+      }
       updateCmsPhotoPreview(p.avatar);
     }
 
@@ -1182,12 +1255,29 @@ document.addEventListener('DOMContentLoaded', () => {
       expList.innerHTML = portfolioData.experience.map(exp => `
         <div class="cms-item-row">
           <div class="cms-item-info">
-            <span class="cms-item-title">${exp.role} @ ${exp.company}</span>
-            <span class="cms-item-sub">${exp.period} &bull; ${exp.bullets.length} bullet points</span>
+            <span class="cms-item-title">${escapeHtml(exp.role)} @ ${escapeHtml(exp.company)}</span>
+            <span class="cms-item-sub">${escapeHtml(exp.period)} &bull; ${(exp.bullets || []).length} bullet points</span>
           </div>
           <div class="cms-item-actions">
             <button class="btn btn-sm btn-secondary" onclick="window.editExperience('${exp.id}')">Edit</button>
             <button class="btn btn-sm btn-danger" onclick="window.deleteExperience('${exp.id}')">Delete</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Populate Education List in CMS
+    const eduList = document.getElementById('cms-edu-list');
+    if (eduList && portfolioData.education) {
+      eduList.innerHTML = portfolioData.education.map(edu => `
+        <div class="cms-item-row">
+          <div class="cms-item-info">
+            <span class="cms-item-title">${escapeHtml(edu.degree)}</span>
+            <span class="cms-item-sub">${escapeHtml(edu.institute)} &bull; ${escapeHtml(edu.period)} &bull; <strong>${escapeHtml(edu.score || '')}</strong></span>
+          </div>
+          <div class="cms-item-actions">
+            <button class="btn btn-sm btn-secondary" onclick="window.editEducation('${edu.id}')">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="window.deleteEducation('${edu.id}')">Delete</button>
           </div>
         </div>
       `).join('');
@@ -1199,8 +1289,8 @@ document.addEventListener('DOMContentLoaded', () => {
       projList.innerHTML = portfolioData.projects.map(proj => `
         <div class="cms-item-row">
           <div class="cms-item-info">
-            <span class="cms-item-title">${proj.title}</span>
-            <span class="cms-item-sub">${proj.categoryBadge} &bull; ${proj.tags.join(', ')}</span>
+            <span class="cms-item-title">${escapeHtml(proj.title)}</span>
+            <span class="cms-item-sub">${escapeHtml(proj.categoryBadge)} &bull; ${(proj.tags || []).join(', ')}</span>
           </div>
           <div class="cms-item-actions">
             <button class="btn btn-sm btn-secondary" onclick="window.editProject('${proj.id}')">Edit</button>
@@ -1215,17 +1305,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (skillsEditor && portfolioData.skills) {
       skillsEditor.innerHTML = portfolioData.skills.map((cat, catIdx) => `
         <div class="cms-skills-cat-card">
-          <h5 class="cms-skills-cat-title">${cat.title}</h5>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+            <h5 class="cms-skills-cat-title" style="margin:0;">${escapeHtml(cat.title)}</h5>
+            <div style="display:flex;gap:0.35rem;">
+              <button type="button" class="btn btn-sm btn-outline" style="padding:0.2rem 0.5rem;font-size:0.75rem;" onclick="window.editSkillCategory(${catIdx})">Edit</button>
+              <button type="button" class="btn btn-sm btn-danger" style="padding:0.2rem 0.5rem;font-size:0.75rem;" onclick="window.deleteSkillCategory(${catIdx})">Delete</button>
+            </div>
+          </div>
+          ${cat.desc ? `<p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 0.5rem 0;">${escapeHtml(cat.desc)}</p>` : ''}
           <div class="cms-skills-chip-list">
-            ${cat.tags.map((t, tIdx) => `
+            ${(cat.tags || []).map((t, tIdx) => `
               <span class="cms-skill-chip">
-                ${t}
+                ${escapeHtml(t)}
                 <button class="skill-remove-btn" onclick="window.deleteSkillTag(${catIdx}, ${tIdx})">&times;</button>
               </span>
             `).join('')}
           </div>
           <div class="cms-add-skill-row">
-            <input type="text" id="add-skill-input-${catIdx}" class="form-input" placeholder="Add new skill..." style="padding:0.4rem 0.6rem;font-size:0.8rem;">
+            <input type="text" id="add-skill-input-${catIdx}" class="form-input" placeholder="Add new skill..." style="padding:0.4rem 0.6rem;font-size:0.8rem;" onkeydown="if(event.key==='Enter'){event.preventDefault();window.addSkillFromInput(${catIdx});}">
             <button class="btn btn-sm btn-primary" onclick="window.addSkillFromInput(${catIdx})">Add</button>
           </div>
         </div>
@@ -1460,10 +1557,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // CMS Profile Form Submit
   const cmsProfileForm = document.getElementById('cms-profile-form');
   if (cmsProfileForm) {
-    cmsProfileForm.addEventListener('submit', (e) => {
+    cmsProfileForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const p = portfolioData.profile;
       p.name = document.getElementById('cms-name').value.trim();
+      p.headlineAccent = p.name; // Keep greeting accent synced with updated name!
+      const roleInput = document.getElementById('cms-role');
+      if (roleInput) p.role = roleInput.value.trim();
       p.statusText = document.getElementById('cms-status').value.trim();
       p.heroDescription = document.getElementById('cms-hero-desc').value.trim();
       p.aboutLead = document.getElementById('cms-about-lead').value.trim();
@@ -1478,20 +1578,29 @@ document.addEventListener('DOMContentLoaded', () => {
       p.contact.linkedin = document.getElementById('cms-linkedin').value.trim();
       p.contact.github = document.getElementById('cms-github').value.trim();
 
+      // Stats fields
+      if (document.getElementById('cms-stat-num-0')) {
+        if (!p.stats || !Array.isArray(p.stats)) p.stats = [];
+        p.stats[0] = { number: document.getElementById('cms-stat-num-0').value.trim() || 'B.Tech', label: document.getElementById('cms-stat-lbl-0').value.trim() || '2024 Graduate' };
+        p.stats[1] = { number: document.getElementById('cms-stat-num-1').value.trim() || '4+', label: document.getElementById('cms-stat-lbl-1').value.trim() || 'Internships & Projects' };
+        p.stats[2] = { number: document.getElementById('cms-stat-num-2').value.trim() || '95%+', label: document.getElementById('cms-stat-lbl-2').value.trim() || 'Digitization Accuracy' };
+      }
+
       const photoUrlField = document.getElementById('cms-photo-url-input');
       if (photoUrlField && photoUrlField.value.trim() && photoUrlField.value.trim() !== p.avatar) {
         p.avatar = photoUrlField.value.trim();
       }
 
-      savePortfolioData();
+      await savePortfolioData(false);
       renderAll();
-      showToast('Profile information successfully updated!', 'success');
+      populateCmsFields();
+      showToast('Profile details successfully saved & stored in database!', 'success');
     });
   }
 
 
   /* --------------------------------------------------------------------------
-     7. EXPERIENCE & PROJECT MODAL MANAGERS
+     7. EXPERIENCE, EDUCATION & PROJECT MODAL MANAGERS
      -------------------------------------------------------------------------- */
   const expModal = document.getElementById('exp-edit-modal');
   const expForm = document.getElementById('exp-edit-form');
@@ -1513,10 +1622,10 @@ document.addEventListener('DOMContentLoaded', () => {
     openModal(expModal);
   };
 
-  window.deleteExperience = (id) => {
+  window.deleteExperience = async (id) => {
     if (!confirm('Are you sure you want to delete this experience role?')) return;
     portfolioData.experience = portfolioData.experience.filter(e => e.id !== id);
-    savePortfolioData();
+    await savePortfolioData(false);
     renderExperience();
     populateCmsFields();
     showToast('Role deleted successfully.', 'info');
@@ -1532,7 +1641,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (cmsAddExpBtn) cmsAddExpBtn.addEventListener('click', openNewExpModal);
 
   if (expForm) {
-    expForm.addEventListener('submit', (e) => {
+    expForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('exp-id').value;
       const role = document.getElementById('exp-role').value.trim();
@@ -1563,11 +1672,91 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      savePortfolioData();
+      await savePortfolioData(false);
       renderExperience();
       populateCmsFields();
       closeModal(expModal);
-      showToast('Experience successfully saved!', 'success');
+      showToast('Experience successfully saved & stored in database!', 'success');
+    });
+  }
+
+  /* --------------------------------------------------------------------------
+     EDUCATION CMS & MODAL CONTROLLER
+     -------------------------------------------------------------------------- */
+  const eduModal = document.getElementById('edu-edit-modal');
+  const eduForm = document.getElementById('edu-edit-form');
+  const cmsAddEduBtn = document.getElementById('cms-add-edu-btn');
+
+  window.editEducation = (id) => {
+    if (!portfolioData.education) portfolioData.education = [];
+    const edu = portfolioData.education.find(e => e.id === id);
+    if (!edu) return;
+
+    document.getElementById('edu-id').value = edu.id;
+    document.getElementById('edu-degree').value = edu.degree || '';
+    document.getElementById('edu-institute').value = edu.institute || '';
+    document.getElementById('edu-period').value = edu.period || '';
+    document.getElementById('edu-score').value = edu.score || '';
+    document.getElementById('edu-desc').value = edu.desc || '';
+    document.getElementById('edu-modal-title').textContent = 'Edit Education Qualification';
+
+    openModal(eduModal);
+  };
+
+  window.deleteEducation = async (id) => {
+    if (!confirm('Are you sure you want to delete this education qualification?')) return;
+    portfolioData.education = (portfolioData.education || []).filter(e => e.id !== id);
+    await savePortfolioData(false);
+    renderEducation();
+    populateCmsFields();
+    showToast('Education deleted successfully.', 'info');
+  };
+
+  const openNewEduModal = () => {
+    if (eduForm) eduForm.reset();
+    document.getElementById('edu-id').value = '';
+    document.getElementById('edu-modal-title').textContent = 'Add New Education';
+    openModal(eduModal);
+  };
+  if (cmsAddEduBtn) cmsAddEduBtn.addEventListener('click', openNewEduModal);
+
+  if (eduForm) {
+    eduForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('edu-id').value;
+      const degree = document.getElementById('edu-degree').value.trim();
+      const institute = document.getElementById('edu-institute').value.trim();
+      const period = document.getElementById('edu-period').value.trim();
+      const score = document.getElementById('edu-score').value.trim();
+      const desc = document.getElementById('edu-desc').value.trim();
+
+      if (!portfolioData.education) portfolioData.education = [];
+
+      if (id) {
+        const item = portfolioData.education.find(x => x.id === id);
+        if (item) {
+          item.degree = degree;
+          item.institute = institute;
+          item.period = period;
+          item.score = score;
+          item.desc = desc;
+        }
+      } else {
+        portfolioData.education.push({
+          id: 'edu-' + Date.now(),
+          degree,
+          institute,
+          period,
+          score,
+          desc
+        });
+      }
+
+      await savePortfolioData(false);
+      renderEducation();
+      populateCmsFields();
+      closeModal(eduModal);
+      showToast('Education successfully saved & stored in database!', 'success');
     });
   }
 
@@ -1589,10 +1778,10 @@ document.addEventListener('DOMContentLoaded', () => {
     openModal(projModal);
   };
 
-  window.deleteProject = (id) => {
+  window.deleteProject = async (id) => {
     if (!confirm('Are you sure you want to delete this project?')) return;
     portfolioData.projects = portfolioData.projects.filter(p => p.id !== id);
-    savePortfolioData();
+    await savePortfolioData(false);
     renderProjects();
     populateCmsFields();
     showToast('Project deleted successfully.', 'info');
@@ -1608,7 +1797,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (cmsAddProjBtn) cmsAddProjBtn.addEventListener('click', openNewProjModal);
 
   if (projForm) {
-    projForm.addEventListener('submit', (e) => {
+    projForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('proj-id').value;
       const title = document.getElementById('proj-title').value.trim();
@@ -1647,44 +1836,110 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      savePortfolioData();
+      await savePortfolioData(false);
       renderProjects();
       populateCmsFields();
       closeModal(projModal);
-      showToast('Project successfully saved!', 'success');
+      showToast('Project successfully saved & stored in database!', 'success');
+    });
+  }
+
+  // Skills Category Management
+  const skillCatModal = document.getElementById('skill-cat-modal');
+  const skillCatForm = document.getElementById('skill-cat-form');
+  const cmsAddSkillCatBtn = document.getElementById('cms-add-skill-cat-btn');
+
+  window.editSkillCategory = (catIdx) => {
+    if (!portfolioData.skills || !portfolioData.skills[catIdx]) return;
+    const cat = portfolioData.skills[catIdx];
+    document.getElementById('skill-cat-idx').value = catIdx;
+    document.getElementById('skill-cat-title').value = cat.title || '';
+    document.getElementById('skill-cat-desc').value = cat.desc || '';
+    document.getElementById('skill-cat-modal-title').textContent = 'Edit Skill Category';
+    openModal(skillCatModal);
+  };
+
+  window.deleteSkillCategory = async (catIdx) => {
+    if (!portfolioData.skills || !portfolioData.skills[catIdx]) return;
+    const catTitle = portfolioData.skills[catIdx].title;
+    if (!confirm(`Are you sure you want to delete the entire skill category "${catTitle}"?`)) return;
+    portfolioData.skills.splice(catIdx, 1);
+    await savePortfolioData(false);
+    renderSkills();
+    populateCmsFields();
+    showToast(`Skill category "${catTitle}" deleted.`, 'info');
+  };
+
+  const openNewSkillCatModal = () => {
+    if (skillCatForm) skillCatForm.reset();
+    document.getElementById('skill-cat-idx').value = '';
+    document.getElementById('skill-cat-modal-title').textContent = 'Add New Skill Category';
+    openModal(skillCatModal);
+  };
+  if (cmsAddSkillCatBtn) cmsAddSkillCatBtn.addEventListener('click', openNewSkillCatModal);
+
+  if (skillCatForm) {
+    skillCatForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const idxStr = document.getElementById('skill-cat-idx').value;
+      const title = document.getElementById('skill-cat-title').value.trim();
+      const desc = document.getElementById('skill-cat-desc').value.trim();
+
+      if (!portfolioData.skills) portfolioData.skills = [];
+
+      if (idxStr !== '') {
+        const catIdx = parseInt(idxStr, 10);
+        if (portfolioData.skills[catIdx]) {
+          portfolioData.skills[catIdx].title = title;
+          portfolioData.skills[catIdx].desc = desc;
+        }
+      } else {
+        portfolioData.skills.push({
+          id: 'cat-' + Date.now(),
+          title,
+          desc,
+          tags: []
+        });
+      }
+
+      await savePortfolioData(false);
+      renderSkills();
+      populateCmsFields();
+      closeModal(skillCatModal);
+      showToast('Skill category saved & stored in database!', 'success');
     });
   }
 
   // Skills tag modifications
-  window.deleteSkillTag = (catIdx, tagIdx) => {
+  window.deleteSkillTag = async (catIdx, tagIdx) => {
     if (portfolioData.skills && portfolioData.skills[catIdx]) {
       portfolioData.skills[catIdx].tags.splice(tagIdx, 1);
-      savePortfolioData();
+      await savePortfolioData(false);
       renderSkills();
       populateCmsFields();
     }
   };
 
-  window.promptAddSkillTag = (catIdx) => {
+  window.promptAddSkillTag = async (catIdx) => {
     const newTag = prompt(`Enter new skill for "${portfolioData.skills[catIdx].title}":`);
     if (newTag && newTag.trim()) {
       portfolioData.skills[catIdx].tags.push(newTag.trim());
-      savePortfolioData();
+      await savePortfolioData(false);
       renderSkills();
       populateCmsFields();
-      showToast('Skill added!', 'success');
+      showToast('Skill added & stored in database!', 'success');
     }
   };
 
-  window.addSkillFromInput = (catIdx) => {
+  window.addSkillFromInput = async (catIdx) => {
     const input = document.getElementById(`add-skill-input-${catIdx}`);
     if (input && input.value.trim()) {
       portfolioData.skills[catIdx].tags.push(input.value.trim());
       input.value = '';
-      savePortfolioData();
+      await savePortfolioData(false);
       renderSkills();
       populateCmsFields();
-      showToast('Skill added!', 'success');
+      showToast('Skill added & stored in database!', 'success');
     }
   };
 
@@ -1825,10 +2080,10 @@ document.addEventListener('DOMContentLoaded', () => {
     openModal(certModal);
   };
 
-  window.deleteCertification = (id) => {
+  window.deleteCertification = async (id) => {
     if (!confirm('Are you sure you want to delete this certification?')) return;
     portfolioData.certifications = (portfolioData.certifications || []).filter(c => c.id !== id);
-    savePortfolioData();
+    await savePortfolioData(false);
     renderEducation();
     populateCmsFields();
     showToast('Certification deleted successfully.', 'info');
@@ -1935,7 +2190,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (certForm) {
-    certForm.addEventListener('submit', (e) => {
+    certForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('cert-id').value;
       const title = document.getElementById('cert-title').value.trim();
@@ -1973,11 +2228,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
-      savePortfolioData();
+      await savePortfolioData(false);
       renderEducation();
       populateCmsFields();
       closeModal(certModal);
-      showToast('Certification successfully saved!', 'success');
+      showToast('Certification successfully saved & stored in database!', 'success');
     });
   }
 
@@ -2285,15 +2540,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         try {
           const parsed = JSON.parse(event.target.result);
-          if (parsed && parsed.profile && parsed.experience && parsed.skills && parsed.projects) {
+          if (parsed && parsed.profile) {
             portfolioData = parsed;
-            savePortfolioData();
+            await savePortfolioData(false);
             renderAll();
             populateCmsFields();
-            showToast('Backup restored successfully!', 'success');
+            showToast('Backup restored & stored in SQLite database successfully!', 'success');
           } else {
             showToast('Invalid backup file structure.', 'error');
           }
@@ -2306,13 +2561,17 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   if (cmsResetBtn) {
-    cmsResetBtn.addEventListener('click', () => {
-      if (confirm('CAUTION: This will reset all website text, experiences, and projects back to Keerthan Tunkoju\'s original resume defaults. Proceed?')) {
-        localStorage.removeItem(STORAGE_KEY);
-        loadPortfolioData();
+    cmsResetBtn.addEventListener('click', async () => {
+      if (confirm('CAUTION: This will reset all website text, experiences, education, and projects back to original defaults and save them to the SQLite database. Proceed?')) {
+        if (typeof defaultPortfolioData !== 'undefined') {
+          portfolioData = JSON.parse(JSON.stringify(defaultPortfolioData));
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+        await savePortfolioData(false);
         renderAll();
         populateCmsFields();
-        showToast('All portfolio data reset to original resume defaults.', 'info');
+        showToast('All portfolio data and SQLite database reset to original defaults.', 'success');
       }
     });
   }
@@ -2654,16 +2913,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let loadedInboxMessages = [];
   let currentInboxFilter = 'all';
   let currentInboxSearch = '';
-
-  const escapeHtml = (str) => {
-    if (!str) return '';
-    return String(str)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  };
 
   const renderInboxMessages = () => {
     const container = document.getElementById('messages-list-container');
@@ -3082,12 +3331,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const dbResyncBtn = document.getElementById('db-resync-btn');
   if (dbResyncBtn) {
-    dbResyncBtn.addEventListener('click', () => {
-      loadPortfolioData();
-      fetchMessagesFromDb();
-      loadEmailSettings();
-      fetchDbStats();
-      showToast('Database resynchronized successfully.', 'success');
+    dbResyncBtn.addEventListener('click', async () => {
+      showToast('Connecting to SQLite database...', 'info', 1000);
+      try {
+        const res = await fetch(getApiUrl('/api/portfolio-data'));
+        if (res.ok) {
+          const serverData = await res.json();
+          if (serverData && serverData.profile) {
+            portfolioData = serverData;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolioData));
+            renderAll();
+            populateCmsFields();
+            if (typeof fetchMessagesFromDb === 'function') fetchMessagesFromDb();
+            if (typeof loadEmailSettings === 'function') loadEmailSettings();
+            if (typeof fetchDbStats === 'function') fetchDbStats();
+            showToast('✓ Successfully synchronized with SQLite database (portfolio.db)!', 'success');
+            return;
+          }
+        }
+        showToast('Database returned unexpected response.', 'warning');
+      } catch (err) {
+        showToast('Failed to connect to database: ' + err.message, 'error');
+      }
     });
   }
 

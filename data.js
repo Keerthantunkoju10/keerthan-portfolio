@@ -244,6 +244,17 @@ const defaultPortfolioData = {
       "desc": "",
       "credentialUrl": "",
       "fileUrl": "Assets/certifications/keerthan_tunkoju-1790667256921.pdf"
+    },
+    {
+      "id": "cert-1794214602043",
+      "title": "Web Development Internship Certification",
+      "org": "Intrainz",
+      "year": "2023",
+      "desc": "",
+      "credentialUrl": "",
+      "fileUrl": "Assets/certifications/keerthan_tunkoju_certificate-1794214598747.pdf",
+      "fileName": "Keerthan Tunkoju_Certificate.pdf",
+      "fileType": "application/pdf"
     }
   ]
 };

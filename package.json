@@ -4,6 +4,7 @@
   "description": "A modern, responsive, and accessible personal portfolio website built with pure **HTML5**, **CSS3**, and **Vanilla JavaScript**, featuring a **built-in visual CMS, live in-place inline editing, and cryptographic admin authentication**.",
   "main": "data.js",
   "scripts": {
+    "build": "echo \"Static portfolio ready for deployment\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
@@ -13,7 +14,9 @@
   "type": "commonjs",
   "dependencies": {
     "@netlify/blobs": "^11.1.8",
-    "nodemailer": "^10.1.2",
+    "nodemailer": "^10.1.2"
+  },
+  "optionalDependencies": {
     "sqlite3": "^6.0.1"
   }
 }

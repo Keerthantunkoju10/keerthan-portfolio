@@ -1,11 +1,17 @@
 # Netlify Configuration for Keerthan Tunkoju Portfolio
 
 [build]
+  command = "npm run build"
   publish = "."
   functions = "netlify/functions"
 
+[build.environment]
+  NODE_VERSION = "20"
+
 [functions]
+  node_bundler = "esbuild"
   included_files = ["portfolio.db", "data.js"]
+  external_node_modules = ["sqlite3"]
 
 # Route API requests to the Netlify Serverless Function
 [[redirects]]
